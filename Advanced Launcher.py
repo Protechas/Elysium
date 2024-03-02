@@ -8,11 +8,11 @@ GITHUB_REPO_OWNER = 'YourUsername'
 GITHUB_REPO_NAME = 'YourRepository'
 GITHUB_API_URL = f'https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest'
 
-@Gooey(dropdown_choices=['Program1', 'Program2', 'Program3', 'Program4', 'Program5'])
+@Gooey(dropdown_choices=['DFR', 'SI Multi-Tool', 'Program3', 'Program4', 'Program5'])
 def main():
     parser = GooeyParser(description="Program Launcher and Updater")
 
-    parser.add_argument('selected_program', widget='Dropdown', help="Select the program to launch", choices=['Program1', 'Program2', 'Program3', 'Program4', 'Program5'])
+    parser.add_argument('selected_program', widget='Dropdown', help="Select the program to launch", choices=['DFR', 'SI Multi-Tool', 'Program3', 'Program4', 'Program5'])
     args = parser.parse_args()
 
     program_name = args.selected_program

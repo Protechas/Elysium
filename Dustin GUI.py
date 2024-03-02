@@ -3,14 +3,13 @@ import subprocess
 import requests
 from gooey import Gooey, GooeyParser
 
-# Replace these values with your GitHub repository information
 GITHUB_REPO_OWNER = 'YourUsername'
 GITHUB_REPO_NAME = 'YourRepository'
 GITHUB_API_URL = f'https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest'
 
-@Gooey(dropdown_choices=['DFR', 'SI Multi-Tool', 'Program3', 'Program4', 'Program5'])
+@Gooey(dropdown_choices=['DFR', 'SI Multi-Tool', 'Program3', 'Program4', 'Program5'], program_name="Program Launcher and Updater", default_size=(600, 400))
 def main():
-    parser = GooeyParser(description="Program Launcher and Updater")
+    parser = GooeyParser(description="Select and launch programs")
 
     parser.add_argument('selected_program', widget='Dropdown', help="Select the program to launch", choices=['DFR', 'SI Multi-Tool', 'Program3', 'Program4', 'Program5'])
     args = parser.parse_args()
@@ -25,6 +24,8 @@ def main():
         print(f"Updating {program_name} to version {latest_version}...")
         download_and_update(program_name, latest_version)
         print(f"{program_name} updated successfully!")
+    else:
+        print(f"{program_name} is already up to date.")
 
     # Launch the selected program
     launch_program(program_name)
