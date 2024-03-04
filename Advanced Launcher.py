@@ -6,8 +6,7 @@ from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLa
 from PyQt5.QtGui import QColor, QPixmap, QIcon
 from PyQt5.QtCore import Qt
 from subprocess import Popen
-
-
+import subprocess
 
 class ProgramUpdater(QWidget):
     def __init__(self):
@@ -16,10 +15,10 @@ class ProgramUpdater(QWidget):
         self.programs = {"DFR": "icon.jpg", "SI Multi-Tool": "icon2.jpg", "program3": "icon3.jpg"}
         self.selected_program = None
         self.init_ui()
-        
-        # Update programs from Github
-        self.update_program_direct("DFR", "https://raw.githubusercontent.com/Romero221/DFR/main/DFR.py")
-        self.update_program_direct("SI Multi-Tool", "https://raw.githubusercontent.com/Romero221/Advanced-Launcher/main")
+
+        # Update programs from GitHub
+        self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
+        self.update_program_direct("SI Multi-Tool", "https://github.com/Romero221/Advanced-Launcher.git")
 
     def init_ui(self):
         self.setWindowTitle('Program Updater and Launcher')
@@ -113,64 +112,49 @@ class ProgramUpdater(QWidget):
         self.selected_program = program
         self.update_and_launch_program()
 
+    def update_program_direct(self, program_name, git_repo_url):
+        program_directory = os.path.join(os.getcwd(), program_name)
+        try:
+            if not os.path.exists(program_directory):
+                # Clone the repo if the directory does not exist
+                print(f"Cloning {program_name} from {git_repo_url}...")
+                subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
+                print(f"{program_name} cloned successfully.")
+            else:
+                # Pull the latest changes if the directory exists
+                print(f"Updating {program_name}...")
+                subprocess.check_call(['git', '-C', program_directory, 'pull'])
+                print(f"{program_name} updated successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error updating {program_name}: {e}")
+
     def update_and_launch_program(self):
         if self.selected_program:
             try:
+                program_name, git_repo_url = self.selected_program, self.programs[self.selected_program]
                 # Update the program before launching
-                self.update_program_direct(self.selected_program)
+                self.update_program_direct(program_name, git_repo_url)
 
-                # Launch the program (replace the path with the actual path to your program)
-                program_path = os.path.join(os.getcwd(), self.selected_program, 'main_script.py')
-                Popen(['python', program_path])
+                # Launch the program
+                # Adjust the path to where the main script is within the cloned repository
+                program_path = os.path.join(os.getcwd(), program_name, 'DFR.py')
+                subprocess.Popen(['python', program_path])
 
-                QMessageBox.information(self, 'Launch', f"Launching {self.selected_program}...")
+                QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
                 self.close()
             except Exception as e:
-                print(f"Error updating or launching {self.selected_program}: {e}")
+                print(f"Error updating or launching {program_name}: {e}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
-def update_program_direct(self, program_name, remote_version_url):
-    try:
-        local_version_file = f"{program_name}/version.txt"
-
-        # Read Local Version
-        if os.path.exists(local_version_file):
-            with open(local_version_file, 'r') as file:
-                local_version = file.read().strip()
-        else:
-            local_version = "0"
-
-        # Fetch Remote Version
-        response = requests.get(remote_version_url)
-        response.raise_for_status()
-        latest_version = response.text.strip()
-
-        # Compare Versions
-        if latest_version != local_version:
-            print(f"Updating {program_name} to version {latest_version}...")
-
-            # Download and Replace Files
-            self.download_file(f"{remote_version_url}/main_script.py",
-                              f"{program_name}/main_script.py")
-
-            # Update Local Version
-            with open(local_version_file, 'w') as file:
-                file.write(latest_version)
-            print(f"{program_name} updated successfully!")
-        else:
-            print(f"{program_name} is up to date.")
-    except Exception as e:
-        print(f"Error updating {program_name}: {e}")
-
-    def launch_program(self):
-        self.update_all_programs()  # Update all programs before launching
-        if self.selected_program:
-            QMessageBox.information(self, 'Launch', f"Launching {self.selected_program}...")
-            # Add code to launch the program here
-            self.close()
-        else:
-            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
+    def download_file(self, url, local_filename):
+        try:
+            with requests.get(url, stream=True) as r:
+                with open(local_filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+        except requests.RequestException as e:
+            print(f"Error downloading file from {url}: {e}")
 
 def main():
     app = QApplication(sys.argv)
