@@ -1,59 +1,182 @@
+import sys
 import os
-import subprocess
 import requests
-from gooey import Gooey, GooeyParser
+from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider
+from PyQt5.QtGui import QColor, QPixmap, QIcon
+from PyQt5.QtCore import Qt
+from subprocess import Popen
 
-# Replace these values with your GitHub repository information
-GITHUB_REPO_OWNER = 'YourUsername'
-GITHUB_REPO_NAME = 'YourRepository'
-GITHUB_API_URL = f'https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest'
 
-@Gooey(dropdown_choices=['DFR', 'SI Multi-Tool', 'Program3', 'Program4', 'Program5'])
-def main():
-    parser = GooeyParser(description="Program Launcher and Updater")
 
-    parser.add_argument('selected_program', widget='Dropdown', help="Select the program to launch", choices=['DFR', 'SI Multi-Tool', 'Program3', 'Program4', 'Program5'])
-    args = parser.parse_args()
+class ProgramUpdater(QWidget):
+    def __init__(self):
+        super().__init__() 
 
-    program_name = args.selected_program
+        self.programs = {"DFR": "icon.jpg", "SI Multi-Tool": "icon2.jpg", "program3": "icon3.jpg"}
+        self.selected_program = None
+        self.init_ui()
+        
+        # Update programs from Github
+        self.update_program_direct("DFR", "https://raw.githubusercontent.com/Romero221/DFR/main/DFR.py")
+        self.update_program_direct("SI Multi-Tool", "https://raw.githubusercontent.com/Romero221/Advanced-Launcher/main")
 
-    # Check for updates
-    latest_version = get_latest_version()
-    current_version = get_installed_version(program_name)
+    def init_ui(self):
+        self.setWindowTitle('Program Updater and Launcher')
+        self.setGeometry(100, 100, 400, 300)
 
-    if latest_version and current_version < latest_version:
-        print(f"Updating {program_name} to version {latest_version}...")
-        download_and_update(program_name, latest_version)
-        print(f"{program_name} updated successfully!")
+        # Dark theme with light blue accent
+        self.dark_style = '''
+            QWidget {
+                background-color: #222;
+                color: #eee;
+            }
 
-    # Launch the selected program
-    launch_program(program_name)
+            QLabel {
+                color: #66ccff;  /* Light blue text */
+            }
 
-def get_latest_version():
-    try:
-        response = requests.get(GITHUB_API_URL)
-        if response.status_code == 200:
-            return response.json()['tag_name']
+            QToolButton {
+                background-color: #66ccff;  /* Light blue background */
+                color: #222;  /* Dark text */
+                border: 2px solid #66ccff;  /* Light blue border */
+                border-radius: 10px;  /* Border radius for a "pop" effect */
+                padding: 10px;  /* Increased padding for a "pop" effect */
+                margin: 5px;
+            }
+
+            QToolButton:hover {
+                background-color: #3385ff;  /* Lighter blue on hover */
+                border: 2px solid #3385ff;  /* Lighter blue border on hover */
+            }
+        '''
+        self.light_style = '''
+            QWidget {
+                background-color: #eee;
+                color: #222;
+            }
+
+            QLabel {
+                color: #0066cc;  /* Dark blue text */
+            }
+
+            QToolButton {
+                background-color: #0066cc;  /* Dark blue background */
+                color: #eee;  /* Light text */
+                border: 2px solid #0066cc;  /* Dark blue border */
+                border-radius: 10px;  /* Border radius for a "pop" effect */
+                padding: 10px;  /* Increased padding for a "pop" effect */
+                margin: 5px;
+            }
+
+            QToolButton:hover {
+                background-color: #004080;  /* Darker blue on hover */
+                border: 2px solid #004080;  /* Darker blue border on hover */
+            }
+        '''
+        self.setStyleSheet(self.dark_style)
+
+        layout = QGridLayout()
+
+        label = QLabel('Select a program to launch:')
+        layout.addWidget(label, 0, 0, 1, 3)  # Row 0, Column 0, Span 1 row and 3 columns
+
+        row = 1
+        col = 0
+
+        for program, icon_path in self.programs.items():
+            button = QToolButton(self)
+            button.setIcon(QIcon(icon_path))
+            button.setText(program)
+            button.clicked.connect(lambda _, p=program: self.program_clicked(p))
+            layout.addWidget(button, row, col)
+
+            # Increment the column index for the next button
+            col += 1
+
+        self.setLayout(layout)
+
+        # Toggle button for dark/light mode
+        self.dark_mode_toggle_button = QPushButton("Dark Mode", self)
+        self.dark_mode_toggle_button.clicked.connect(self.toggle_dark_mode)
+        layout.addWidget(self.dark_mode_toggle_button, 0, 2, 1, 1)
+
+    def toggle_dark_mode(self):
+        if self.dark_mode_toggle_button.text() == "Dark Mode":
+            self.setStyleSheet(self.light_style)
+            self.dark_mode_toggle_button.setText("Light Mode")
         else:
-            print(f"Failed to fetch latest version: {response.status_code}")
-    except requests.RequestException as e:
-        print(f"Error fetching latest version: {e}")
-    return None
+            self.setStyleSheet(self.dark_style)
+            self.dark_mode_toggle_button.setText("Dark Mode")
 
-def get_installed_version(program_name):
-    # Implement logic to get the currently installed version of the program
-    # Replace this with your own version retrieval mechanism
-    return '1.0.0'
+    def program_clicked(self, program):
+        self.selected_program = program
+        self.update_and_launch_program()
 
-def download_and_update(program_name, version):
-    # Implement logic to download and update the program to the specified version
-    # Replace this with your own update mechanism
-    pass
+    def update_and_launch_program(self):
+        if self.selected_program:
+            try:
+                # Update the program before launching
+                self.update_program_direct(self.selected_program)
 
-def launch_program(program_name):
-    # Implement logic to launch the selected program
-    # Replace this with your own program launch mechanism
-    print(f"Launching {program_name}...")
+                # Launch the program (replace the path with the actual path to your program)
+                program_path = os.path.join(os.getcwd(), self.selected_program, 'main_script.py')
+                Popen(['python', program_path])
 
-if __name__ == '__main__':
+                QMessageBox.information(self, 'Launch', f"Launching {self.selected_program}...")
+                self.close()
+            except Exception as e:
+                print(f"Error updating or launching {self.selected_program}: {e}")
+        else:
+            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
+
+def update_program_direct(self, program_name, remote_version_url):
+    try:
+        local_version_file = f"{program_name}/version.txt"
+
+        # Read Local Version
+        if os.path.exists(local_version_file):
+            with open(local_version_file, 'r') as file:
+                local_version = file.read().strip()
+        else:
+            local_version = "0"
+
+        # Fetch Remote Version
+        response = requests.get(remote_version_url)
+        response.raise_for_status()
+        latest_version = response.text.strip()
+
+        # Compare Versions
+        if latest_version != local_version:
+            print(f"Updating {program_name} to version {latest_version}...")
+
+            # Download and Replace Files
+            self.download_file(f"{remote_version_url}/main_script.py",
+                              f"{program_name}/main_script.py")
+
+            # Update Local Version
+            with open(local_version_file, 'w') as file:
+                file.write(latest_version)
+            print(f"{program_name} updated successfully!")
+        else:
+            print(f"{program_name} is up to date.")
+    except Exception as e:
+        print(f"Error updating {program_name}: {e}")
+
+    def launch_program(self):
+        self.update_all_programs()  # Update all programs before launching
+        if self.selected_program:
+            QMessageBox.information(self, 'Launch', f"Launching {self.selected_program}...")
+            # Add code to launch the program here
+            self.close()
+        else:
+            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
+
+def main():
+    app = QApplication(sys.argv)
+    updater = ProgramUpdater()
+    updater.show()
+    sys.exit(app.exec_())
+
+if __name__ == "__main__":
     main()
