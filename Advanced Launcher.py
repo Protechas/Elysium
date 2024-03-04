@@ -12,13 +12,13 @@ class ProgramUpdater(QWidget):
     def __init__(self):
         super().__init__() 
 
-        self.programs = {"DFR": "icon.jpg", "SI Multi-Tool": "icon2.jpg", "program3": "icon3.jpg"}
+        self.programs = {"DFR": "icon.jpg", "SI MultiTool": "icon2.jpg", "program3": "icon3.jpg"}
         self.selected_program = None
         self.init_ui()
 
         # Update programs from GitHub
         self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
-        self.update_program_direct("SI Multi-Tool", "https://github.com/Romero221/Advanced-Launcher.git")
+        self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
 
     def init_ui(self):
         self.setWindowTitle('Program Updater and Launcher')
