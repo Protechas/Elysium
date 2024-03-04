@@ -10,15 +10,20 @@ import subprocess
 
 class ProgramUpdater(QWidget):
     def __init__(self):
-        super().__init__() 
-
-        self.programs = {"DFR": "icon.jpg", "SI MultiTool": "icon2.jpg", "program3": "icon3.jpg"}
+        super().__init__()
+        # Updated programs dictionary to include script names
+        self.programs = {
+            "DFR": {"icon": "icon.jpg", "script": "DFR.py"},
+            "SI MultiTool": {"icon": "icon2.jpg", "script": "SI Multitool.py"},
+            "program3": {"icon": "icon3.jpg", "script": "script3.py"}  # Example entry
+        }
         self.selected_program = None
         self.init_ui()
 
         # Update programs from GitHub
         self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
         self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
+
 
     def init_ui(self):
         self.setWindowTitle('Program Updater and Launcher')
@@ -85,7 +90,6 @@ class ProgramUpdater(QWidget):
 
         for program, icon_path in self.programs.items():
             button = QToolButton(self)
-            button.setIcon(QIcon(icon_path))
             button.setText(program)
             button.clicked.connect(lambda _, p=program: self.program_clicked(p))
             layout.addWidget(button, row, col)
@@ -131,21 +135,25 @@ class ProgramUpdater(QWidget):
     def update_and_launch_program(self):
         if self.selected_program:
             try:
-                program_name, git_repo_url = self.selected_program, self.programs[self.selected_program]
+                program_info = self.programs[self.selected_program]
+                git_repo_url = "https://github.com/placeholder/repo.git"  # Placeholder URL
+                program_name = self.selected_program
+                script_name = program_info["script"]
+                
                 # Update the program before launching
                 self.update_program_direct(program_name, git_repo_url)
 
                 # Launch the program
-                # Adjust the path to where the main script is within the cloned repository
-                program_path = os.path.join(os.getcwd(), program_name, 'DFR.py')
+                program_path = os.path.join(os.getcwd(), program_name, script_name)
                 subprocess.Popen(['python', program_path])
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
                 self.close()
             except Exception as e:
-                print(f"Error updating or launching {program_name}: {e}")
+                QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
+
 
     def download_file(self, url, local_filename):
         try:
