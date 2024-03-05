@@ -1,7 +1,31 @@
-import pkg_resources
 import subprocess
 import sys
 import os
+ 
+required_packages = {
+    'pymupdf': 'fitz',
+    'requests': 'requests',
+    'PyQt5': 'PyQt5',
+    'numpy': 'numpy',
+    'pandas': 'pandas',
+    'cx_Freeze': 'cx_Freeze',
+    'openpyxl': 'openpyxl',
+    'PyPDF2': 'PyPDF2',
+    # Add other required packages and their import names here
+}
+def install_and_import(package, import_name=None):
+    if not import_name:
+        import_name = package
+    try:
+        # Try importing the package
+        __import__(import_name)
+    except ImportError:
+        # If the package is not found, install it
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        __import__(import_name)
+for package, import_name in required_packages.items():
+    install_and_import(package, import_name)
+ 
 import requests
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider
@@ -9,39 +33,10 @@ from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient
 from PyQt5.QtCore import Qt
 from subprocess import Popen
 import openpyxl
-
-required_packages = {
-    
-    'pymupdf': 'fitz',
-    'requests' : 'requests',
-    'PyQt5' : 'PyQt5',
-    'numpy' : 'numpy',
-    'pandas' : 'pandas',
-    'cx_Freeze' : 'cx_Freeze',
-    'openpyxl' : 'openpyxl',
  
-    # Add other required packages and their import names here
-    # ('package_name': 'import_name',)
-}
-
-def install_and_import(package, import_name=None):
-    if not import_name:
-        import_name = package
-    try:
-        # Try importing the package
-        pkg_resources.require(package)
-        __import__(import_name)
-    except ImportError:
-        # If the package is not found, install it
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-        __import__(import_name)
-
-for package, import_name in required_packages.items():
-    install_and_import(package, import_name)
-
 class ProgramIcon(QWidget):
     clicked = pyqtSignal(str)  # Emit the program name as a signal argument
-
+ 
     def __init__(self, program, icon_path, icon_size=(70, 70)):
         super().__init__()
         self.program = program
@@ -50,26 +45,26 @@ class ProgramIcon(QWidget):
         self.highlight = False
         self.setFixedSize(100, 120)  # Increased height to accommodate program name
         self.setCursor(Qt.PointingHandCursor)
-
+ 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.program)  # Emit the program name
-
+ 
     def enterEvent(self, event):
         self.highlight = True
         self.update()
-
+ 
     def leaveEvent(self, event):
         self.highlight = False
         self.update()
-
+ 
     def paintEvent(self, event):
         painter = QPainter(self)
         pixmap = QPixmap(self.icon_path)
-
+ 
         # Scale pixmap based on icon_size
         pixmap = pixmap.scaled(QSize(*self.icon_size), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
-
+ 
         if self.highlight:
             highlight_gradient = QColor(0, 128, 128)  # Teal color
             highlight_gradient.setAlpha(255)  # Set opacity (fully opaque)
@@ -79,33 +74,33 @@ class ProgramIcon(QWidget):
             gradient.setColorAt(0, highlight_gradient)
             gradient.setColorAt(1, QColor(0, 0, 0, 0))  # Fully transparent color
             painter.fillRect(gradient_rect, gradient)
-
+ 
         # Center the pixmap horizontally
         pixmap_x = (self.width() - pixmap.width()) // 2
         painter.drawPixmap(pixmap_x, 5, pixmap)
-
+ 
         # Draw program name below the icon
         painter.setFont(QFont('Arial', 10))
         text_rect = QRect(0, 60, self.width(), 40)
         painter.drawText(text_rect, Qt.AlignCenter, self.program)
-
+ 
 class RoundedTextLabel(QWidget):
     def __init__(self, text, parent=None):
         super().__init__(parent)
         self.text = text
-
+ 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)  # Enable antialiasing for smoother edges
-
+ 
         font = painter.font()
         font.setPointSize(24)  # Set the font size
         painter.setFont(font)
-
+ 
         metrics = QFontMetrics(font)
         text_width = metrics.width(self.text)
         text_height = metrics.height()
-
+ 
         # Draw rounded rectangle for each letter
         x = 0
         y = 0
@@ -118,20 +113,20 @@ class RoundedTextLabel(QWidget):
             painter.setBrush(QColor("#007bff"))  # Blue color for text
             painter.drawText(x, y + text_height, char)
             x += metrics.width(char)
-
+ 
         painter.end()
-
+ 
 class ProgramUpdater(QWidget):
     light_style = '''
         QWidget {
             background-color: #eee;
             color: #222;
         }
-
+ 
         QLabel {
             color: #000000;  /* Dark blue text */
         }
-
+ 
         QToolButton {
             background-color: #0066cc;  /* Dark blue background */
             color: #eee;  /* Light text */
@@ -140,23 +135,23 @@ class ProgramUpdater(QWidget):
             padding: 10px;  /* Increased padding for a "pop" effect */
             margin: 5px;
         }
-
+ 
         QToolButton:hover {
             background-color: #004080;  /* Darker blue on hover */
             border: 2px solid #004080;  /* Darker blue border on hover */
         }
     '''
-
+ 
     dark_style = '''
         QWidget {
             background-color: #222;
             color: #eee;
         }
-
+ 
         QLabel {
             color: #008080;  /* Light blue text */
         }
-
+ 
         QToolButton {
             background-color: #66ccff;  /* Light blue background */
             color: #222;  /* Dark text */
@@ -165,13 +160,13 @@ class ProgramUpdater(QWidget):
             padding: 10px;  /* Increased padding for a "pop" effect */
             margin: 5px;
         }
-
+ 
         QToolButton:hover {
             background-color: #3385ff;  /* Lighter blue on hover */
             border: 2px solid #3385ff;  /* Lighter blue border on hover */
         }
     '''
-
+ 
     def __init__(self):
         super().__init__()
         # Updated programs dictionary to include script names and icon paths
@@ -187,21 +182,21 @@ class ProgramUpdater(QWidget):
         }
         self.selected_program = None
         self.init_ui()
-
+ 
         # Update programs from GitHub
         self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
         self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
-
+ 
         # Set dark mode by default
         self.setStyleSheet(self.dark_style)
-
+ 
     def init_ui(self):
         self.setWindowTitle('ELYSIUM')
         self.setGeometry(100, 100, 400, 300)
-
+ 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)  # Center the header label vertically
-
+ 
         # Header label
         header_label = QLabel('ELYSIUM', self)
         header_label.setAlignment(Qt.AlignCenter)
@@ -213,15 +208,14 @@ class ProgramUpdater(QWidget):
             }
         ''')
         layout.addWidget(header_label)
-
+ 
         # Create a grid layout for the icons
         grid_layout = QGridLayout()
         grid_layout.setAlignment(Qt.AlignCenter)
         grid_layout.setSpacing(10)  # Adjust spacing between icons
-        
         row = 0
         col = 0
-
+ 
         for program, program_info in self.programs.items():
             icon_widget = ProgramIcon(program, program_info["icon"])
             icon_widget.clicked.connect(self.program_clicked)  # Connect to the program_clicked method directly
@@ -230,9 +224,9 @@ class ProgramUpdater(QWidget):
             if col == 3:
                 row += 1
                 col = 0
-
+ 
         layout.addLayout(grid_layout)
-
+ 
         # Add Dark Mode/Light Mode button
         self.dark_mode_toggle_button = QPushButton("Light Mode", self)
         self.dark_mode_toggle_button.clicked.connect(self.toggle_dark_mode)
@@ -252,13 +246,13 @@ class ProgramUpdater(QWidget):
             }
         ''')
         layout.addWidget(self.dark_mode_toggle_button)
-
+ 
         self.setLayout(layout)
-
+ 
     def program_clicked(self, program):
         self.selected_program = program
         self.update_and_launch_program()
-
+ 
     def toggle_dark_mode(self):
         if self.dark_mode_toggle_button.text() == "Light Mode":
             self.setStyleSheet(self.light_style)
@@ -266,11 +260,11 @@ class ProgramUpdater(QWidget):
         else:
             self.setStyleSheet(self.dark_style)
             self.dark_mode_toggle_button.setText("Light Mode")
-
+ 
     def program_clicked(self, program):
         self.selected_program = program
         self.update_and_launch_program()
-
+ 
     def update_program_direct(self, program_name, git_repo_url):
         program_directory = os.path.join(os.getcwd(), program_name)
         try:
@@ -287,7 +281,7 @@ class ProgramUpdater(QWidget):
                 print(f"{program_name} updated successfully.")
         except subprocess.CalledProcessError as e:
             print(f"Error updating {program_name}: {e}")
-
+ 
     def update_and_launch_program(self):
         if self.selected_program:
             try:
@@ -295,27 +289,26 @@ class ProgramUpdater(QWidget):
                 git_repo_url = "https://github.com/placeholder/repo.git"  # Placeholder URL
                 program_name = self.selected_program
                 script_name = program_info["script"]
-                
                 # Update the program before launching
                 self.update_program_direct(program_name, git_repo_url)
-
+ 
                 # Launch the program
                 program_path = os.path.join(os.getcwd(), program_name, script_name)
                 launch_command = ['python', program_path]
-
+ 
                 # Pass the dark mode style sheet to the launched program
                 launch_env = os.environ.copy()
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
-
+ 
                 subprocess.Popen(launch_command, env=launch_env)
-
+ 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
                 self.close()
             except Exception as e:
                 QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
-
+ 
     def download_file(self, url, local_filename):
         try:
             with requests.get(url, stream=True) as r:
@@ -324,15 +317,15 @@ class ProgramUpdater(QWidget):
                         f.write(chunk)
         except requests.RequestException as e:
             print(f"Error downloading file from {url}: {e}")
-
+ 
 def main():
     app = QApplication(sys.argv)
     updater = ProgramUpdater()
     updater.show()
-
+ 
     updater.setWindowIcon(QIcon(r"C:\\Users\\SEang\\Desktop\\ELYSIUM_icon.ico"))
-
+ 
     sys.exit(app.exec_())
-
+ 
 if __name__ == "__main__":
     main()
