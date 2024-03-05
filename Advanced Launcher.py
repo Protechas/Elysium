@@ -321,11 +321,22 @@ class ProgramUpdater(QWidget):
 def main():
     app = QApplication(sys.argv)
     updater = ProgramUpdater()
+    
+    # Get the screen geometry to calculate the center position
+    screen_geometry = app.primaryScreen().geometry()
+    window_geometry = updater.geometry()
+
+    # Calculate the center position
+    center_x = int((screen_geometry.width() - window_geometry.width()) / 2)
+    center_y = int((screen_geometry.height() - window_geometry.height()) / 2)
+
+    # Set the window position to the center
+    updater.move(center_x, center_y)
+    
     updater.show()
- 
     updater.setWindowIcon(QIcon(r"C:\\Users\\SEang\\Desktop\\ELYSIUM_icon.ico"))
- 
+
     sys.exit(app.exec_())
- 
+
 if __name__ == "__main__":
     main()
