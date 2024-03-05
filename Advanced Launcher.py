@@ -1,3 +1,15 @@
+#####################################################################################################################################################################################################
+#                                                                                                                                                                                                   #
+#                                                                                                                                                                                                   #
+#                                                                                                                                                                                                   #
+#                                                                     Installing The Proper Packages before Using DFR and Multitool                                                                 #
+#                                                                                                                                                                                                   #
+#                                                                                                                                                                                                   #
+#                                                                                                                                                                                                   #
+#####################################################################################################################################################################################################
+
+import pkg_resources
+import subprocess
 import sys
 import os
 import requests
@@ -6,7 +18,47 @@ from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLa
 from PyQt5.QtGui import QColor, QPixmap, QIcon
 from PyQt5.QtCore import Qt
 from subprocess import Popen
-import subprocess
+
+required_packages = {
+    
+    'pymupdf': 'fitz',
+    'requests' : 'requests',
+    'PyQt5' : 'PyQt5',
+    'numpy' : 'numpy',
+    'pandas' : 'pandas',
+    'cx_Freeze' : 'cx_Freeze',
+    'openpyxl' : 'openpyxl',
+ 
+    # Add other required packages and their import names here
+    # ('package_name': 'import_name',)
+}
+
+def install_and_import(package, import_name=None):
+    if not import_name:
+        import_name = package
+    try:
+        # Try importing the package
+        pkg_resources.require(package)
+        __import__(import_name)
+    except ImportError:
+        # If the package is not found, install it
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        __import__(import_name)
+
+for package, import_name in required_packages.items():
+    install_and_import(package, import_name)
+
+
+#####################################################################################################################################################################################################
+#                                                                                                                                                                                                   #
+#                                                                                                                                                                                                   #
+#                                                                                                                                                                                                   #
+#                                                                                      Running the Advanced Launcher                                                                                #
+#                                                                                                                                                                                                   #
+#                                                                                                                                                                                                   #
+#                                                                                                                                                                                                   #
+#####################################################################################################################################################################################################
+
 
 class ProgramUpdater(QWidget):
     def __init__(self):
