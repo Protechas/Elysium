@@ -1,47 +1,7 @@
-########## Starting by installing Python ######################################################### STUFF IN #'S IS A Wip #################################################################################################################################
-
-
 import subprocess
 import sys
 import os
  
-def install_python():
-    # Download Python installer - example URL, needs to be updated to the actual download link
-    python_installer_url = "https://www.python.org/ftp/python/3.11.8/python-3.11.8-amd64.exe"
-    installer_path = "python_installer.exe"
-    subprocess.run(["curl", python_installer_url, "-o", installer_path])
-    # Install Python silently
-    subprocess.run([installer_path, "/quiet", "InstallAllUsers=1", "PrependPath=1"])
-    
-########## This independent Import below needs to be here, so below in the CLone Github will processess, and cant be used before installing python, or after the Github repo ##########
-import shutil
-    
-def clone_github_repo():
-    repo_url = "https://github.com/Romero221/Advanced-Launcher.git"
-    clone_path = os.path.join(os.environ["TEMP"], "Advanced Launcher")  # Temporarily clone here
-    target_path = "C:\Program Files (x86)"
-    
-    # Clone the repository
-    subprocess.run(["git", "clone", repo_url, clone_path])
-    
-    # Move the cloned repository to the target location
-    # This might require administrative privileges
-    if os.path.exists(target_path):
-        shutil.rmtree(target_path)  # Remove the target directory if it already exists
-    shutil.move(clone_path, target_path)
-    print(f"Repository cloned to {target_path}")
-
-def create_shortcut():
-    desktop_path = os.path.join(os.environ["USERPROFILE"], "Desktop")
-    shortcut_path = os.path.join(desktop_path, "Advanced Launcher.lnk")
-    target_path = "C:\\Program Files (x86)\\Advanced Launcher\\<main_executable_or_script>"
-    # Adjust <main_executable_or_script> to the actual path of the application's executable or main script
-    with open(shortcut_path, 'w') as shortcut_file:
-        shortcut_file.write(f'[InternetShortcut]\nURL=file:///{target_path}\n')
-    print(f"Shortcut created at {shortcut_path}")
-    
-########## Installing Required Libraries to run properly #################################################################################################################################################################################################
-
 required_packages = {
     'pymupdf': 'fitz',
     'requests': 'requests',
@@ -65,8 +25,6 @@ def install_and_import(package, import_name=None):
         __import__(import_name)
 for package, import_name in required_packages.items():
     install_and_import(package, import_name)
-    
-########## Executing Program ##########
  
 import requests
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect
@@ -215,9 +173,6 @@ class ProgramUpdater(QWidget):
         self.programs = {
             "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\excel_formatting_icon.ico", "script": "DFR.py"},
             "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\pdf_multitool_icon.ico", "script": "SI Multitool.py"},
-            "program3": {"icon": "C:\\Users\\SEang\\Desktop\\practice_icon.ico", "script": "script3.py"},#########################
-            "program4": {"icon": "C:\\Users\\SEang\\Desktop\\ELYSIUM_icon.ico", "script": "script4.py"},#########################
-            "program5": {"icon": "icon5.jpg", "script": "script5.py"},#########################
             ################################
             # ADD ADDITIONAL PROGRAMS HERE #
             ################################
@@ -228,7 +183,7 @@ class ProgramUpdater(QWidget):
         # Update programs from GitHub
         self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
         self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
- 
+
         # Set dark mode by default
         self.setStyleSheet(self.dark_style)
  
@@ -382,6 +337,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    install_python()
-    clone_github_repo()
-    create_shortcut()
