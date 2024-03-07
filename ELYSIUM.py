@@ -228,9 +228,11 @@ class ProgramUpdater(QWidget):
         # Get the path to the user's documents folder
         documents_folder = os.path.expanduser('~\\Documents')
 
+        # Specify the relative path to the Python executable within the user's documents folder
+        python_executable_path = os.path.join(documents_folder, 'Elysium Launcher', 'ELYSIUM Python', 'python.exe')
+
         # Update the ProgramIcon instantiation in the ProgramUpdater class
         for program, program_info in self.programs.items():
-            python_executable_path = os.path.join(documents_folder, 'path_to_python_executable.exe')
             icon_widget = ProgramIcon(program, program_info["icon"], python_executable_path)
             icon_widget.clicked.connect(self.program_clicked)  # Connect to the program_clicked method directly
             grid_layout.addWidget(icon_widget, row, col)
