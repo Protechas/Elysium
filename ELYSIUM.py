@@ -180,9 +180,18 @@ class ProgramUpdater(QWidget):
  
     def __init__(self):
         super().__init__()
+        # Get the path to the user's documents folder
+        documents_folder = os.path.expanduser('~\\Documents')
+
+        # Specify the relative path to the Python executable within the user's documents folder
+        python_executable_path = os.path.join(documents_folder, 'Elysium Launcher', 'ELYSIUM Python', 'python.exe')
+
+        # Construct the absolute path to the Python script
+        script_absolute_path = os.path.join(documents_folder, 'Elysium Launcher', 'DFR', 'DFR.py')
+
         # Updated programs dictionary to include script names and icon paths
         self.programs = {
-            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\excel_formatting_icon.ico", "script": "DFR.py"},
+            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\excel_formatting_icon.ico", "script": script_absolute_path},
             "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\pdf_multitool_icon.ico", "script": "SI Multitool.py"},
             ################################
             # ADD ADDITIONAL PROGRAMS HERE #
@@ -190,22 +199,25 @@ class ProgramUpdater(QWidget):
         }
         self.selected_program = None
         self.init_ui()
- 
+
         # Update programs from GitHub
         self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
         self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
         self.update_program_direct("ELYSIUM Python", "https://github.com/ShaneProtech/ELYSIUM-Python")
-     
+    
         # Set dark mode by default
         self.setStyleSheet(self.dark_style)
- 
+
+        # Define python_executable_path here
+        self.python_executable_path = python_executable_path
+
     def init_ui(self):
         self.setWindowTitle('ELYSIUM')
         self.setGeometry(100, 100, 400, 300)
- 
+
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)  # Center the header label vertically
- 
+
         # Header label
         header_label = QLabel('ELYSIUM', self)
         header_label.setAlignment(Qt.AlignCenter)
@@ -217,29 +229,25 @@ class ProgramUpdater(QWidget):
             }
         ''')
         layout.addWidget(header_label)
- 
+
         # Create a grid layout for the icons
         grid_layout = QGridLayout()
         grid_layout.setAlignment(Qt.AlignCenter)
         grid_layout.setSpacing(10)  # Adjust spacing between icons
         row = 0
         col = 0
- 
-        # Get the path to the user's documents folder
-        documents_folder = os.path.expanduser('~\\Documents')
-
-        # Specify the relative path to the Python executable within the user's documents folder
-        python_executable_path = os.path.join(documents_folder, 'Elysium Launcher', 'ELYSIUM Python', 'python.exe')
 
         # Update the ProgramIcon instantiation in the ProgramUpdater class
         for program, program_info in self.programs.items():
-            icon_widget = ProgramIcon(program, program_info["icon"], python_executable_path)
+            icon_widget = ProgramIcon(program, program_info["icon"], self.python_executable_path, program_info["script"])
             icon_widget.clicked.connect(self.program_clicked)  # Connect to the program_clicked method directly
             grid_layout.addWidget(icon_widget, row, col)
             col += 1
             if col == 3:
                 row += 1
                 col = 0
+
+        layout.addLayout(grid_layout)
  
         layout.addLayout(grid_layout)
  
