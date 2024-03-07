@@ -185,7 +185,8 @@ class ProgramUpdater(QWidget):
         # Update programs from GitHub
         self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
         self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
-
+        self.update_program_direct("ELYSIUM Python", "https://github.com/ShaneProtech/ELYSIUM-Python")
+     
         # Set dark mode by default
         self.setStyleSheet(self.dark_style)
  
