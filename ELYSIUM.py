@@ -36,28 +36,19 @@ import openpyxl
  
 class ProgramIcon(QWidget):
     clicked = pyqtSignal(str)  # Emit the program name as a signal argument
-
-    def __init__(self, program, icon_path, python_executable_path, icon_size=(70, 70)):
+ 
+    def __init__(self, program, icon_path, icon_size=(70, 70)):
         super().__init__()
         self.program = program
         self.icon_path = icon_path
         self.icon_size = icon_size  # Added icon_size parameter
-        self.python_executable_path = python_executable_path  # Added python_executable_path parameter
         self.highlight = False
         self.setFixedSize(100, 120)  # Increased height to accommodate program name
         self.setCursor(Qt.PointingHandCursor)
-
+ 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.launch_program()  # Launch the program when left-clicked
-
-    def launch_program(self):
-        # Construct the command to run the program using the specified Python instance
-        command = f'"{self.python_executable_path}" "{self.program}.py"'
-        try:
-            subprocess.Popen(command, shell=True)
-        except Exception as e:
-            print(f"Error launching program {self.program}: {e}")
+            self.clicked.emit(self.program)  # Emit the program name
  
     def enterEvent(self, event):
         self.highlight = True
@@ -180,18 +171,9 @@ class ProgramUpdater(QWidget):
  
     def __init__(self):
         super().__init__()
-        # Get the path to the user's documents folder
-        documents_folder = os.path.expanduser('~\\Documents')
-
-        # Specify the relative path to the Python executable within the user's documents folder
-        python_executable_path = os.path.join(documents_folder, 'Elysium Launcher', 'ELYSIUM Python', 'python.exe')
-
-        # Construct the absolute path to the Python script
-        script_absolute_path = os.path.join(documents_folder, 'Elysium Launcher', 'DFR', 'DFR.py')
-
         # Updated programs dictionary to include script names and icon paths
         self.programs = {
-            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\excel_formatting_icon.ico", "script": script_absolute_path},
+            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\excel_formatting_icon.ico", "script": "DFR.py"},
             "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\pdf_multitool_icon.ico", "script": "SI Multitool.py"},
             ################################
             # ADD ADDITIONAL PROGRAMS HERE #
@@ -199,25 +181,22 @@ class ProgramUpdater(QWidget):
         }
         self.selected_program = None
         self.init_ui()
-
+ 
         # Update programs from GitHub
         self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
         self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
         self.update_program_direct("ELYSIUM Python", "https://github.com/ShaneProtech/ELYSIUM-Python")
-    
+
         # Set dark mode by default
         self.setStyleSheet(self.dark_style)
-
-        # Define python_executable_path here
-        self.python_executable_path = python_executable_path
-
+ 
     def init_ui(self):
         self.setWindowTitle('ELYSIUM')
         self.setGeometry(100, 100, 400, 300)
-
+ 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)  # Center the header label vertically
-
+ 
         # Header label
         header_label = QLabel('ELYSIUM', self)
         header_label.setAlignment(Qt.AlignCenter)
@@ -229,25 +208,22 @@ class ProgramUpdater(QWidget):
             }
         ''')
         layout.addWidget(header_label)
-
+ 
         # Create a grid layout for the icons
         grid_layout = QGridLayout()
         grid_layout.setAlignment(Qt.AlignCenter)
         grid_layout.setSpacing(10)  # Adjust spacing between icons
         row = 0
         col = 0
-
-        # Update the ProgramIcon instantiation in the ProgramUpdater class
+ 
         for program, program_info in self.programs.items():
-            icon_widget = ProgramIcon(program, program_info["icon"], self.python_executable_path, program_info["script"])
+            icon_widget = ProgramIcon(program, program_info["icon"])
             icon_widget.clicked.connect(self.program_clicked)  # Connect to the program_clicked method directly
             grid_layout.addWidget(icon_widget, row, col)
             col += 1
             if col == 3:
                 row += 1
                 col = 0
-
-        layout.addLayout(grid_layout)
  
         layout.addLayout(grid_layout)
  
@@ -322,7 +298,34 @@ class ProgramUpdater(QWidget):
                         f.write(chunk)
         except requests.RequestException as e:
             print(f"Error downloading file from {url}: {e}")
+
+    def update_and_launch_program(self):
+        if self.selected_program:
+            try:
+                program_info = self.programs[self.selected_program]
+                git_repo_url = "https://github.com/placeholder/repo.git"  # Placeholder URL
+                program_name = self.selected_program
+                script_name = program_info["script"]
+                # Update the program before launching
+                self.update_program_direct(program_name, git_repo_url)
  
+                # Launch the program
+                program_path = os.path.join(os.getcwd(), program_name, script_name)
+                launch_command = ['python', program_path]
+ 
+                # Pass the dark mode style sheet to the launched program
+                launch_env = os.environ.copy()
+                launch_env['LAUNCHER_STYLE'] = self.dark_style
+ 
+                subprocess.Popen(launch_command, env=launch_env)
+ 
+                QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
+                self.close()
+            except Exception as e:
+                QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
+        else:
+            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
+
 def main():
     app = QApplication(sys.argv)
     updater = ProgramUpdater()
