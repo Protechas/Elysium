@@ -36,19 +36,28 @@ import openpyxl
  
 class ProgramIcon(QWidget):
     clicked = pyqtSignal(str)  # Emit the program name as a signal argument
- 
-    def __init__(self, program, icon_path, icon_size=(70, 70)):
+
+    def __init__(self, program, icon_path, python_executable_path, icon_size=(70, 70)):
         super().__init__()
         self.program = program
         self.icon_path = icon_path
         self.icon_size = icon_size  # Added icon_size parameter
+        self.python_executable_path = python_executable_path  # Added python_executable_path parameter
         self.highlight = False
         self.setFixedSize(100, 120)  # Increased height to accommodate program name
         self.setCursor(Qt.PointingHandCursor)
- 
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.clicked.emit(self.program)  # Emit the program name
+            self.launch_program()  # Launch the program when left-clicked
+
+    def launch_program(self):
+        # Construct the command to run the program using the specified Python instance
+        command = f'"{self.python_executable_path}" "{self.program}.py"'
+        try:
+            subprocess.Popen(command, shell=True)
+        except Exception as e:
+            print(f"Error launching program {self.program}: {e}")
  
     def enterEvent(self, event):
         self.highlight = True
@@ -216,8 +225,13 @@ class ProgramUpdater(QWidget):
         row = 0
         col = 0
  
+        # Get the path to the user's documents folder
+        documents_folder = os.path.expanduser('~\\Documents')
+
+        # Update the ProgramIcon instantiation in the ProgramUpdater class
         for program, program_info in self.programs.items():
-            icon_widget = ProgramIcon(program, program_info["icon"])
+            python_executable_path = os.path.join(documents_folder, 'path_to_python_executable.exe')
+            icon_widget = ProgramIcon(program, program_info["icon"], python_executable_path)
             icon_widget.clicked.connect(self.program_clicked)  # Connect to the program_clicked method directly
             grid_layout.addWidget(icon_widget, row, col)
             col += 1
