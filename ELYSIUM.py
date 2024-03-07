@@ -273,7 +273,7 @@ class ProgramUpdater(QWidget):
         elysium_launcher_path = os.path.join(desktop_path, "Elysium Launcher")
         if not os.path.exists(elysium_launcher_path):
             os.makedirs(elysium_launcher_path)
-          
+        
         # Adjust the program directory to be inside the "Elysium Launcher" folder
         program_directory = os.path.join(elysium_launcher_path, program_name)
 
@@ -283,10 +283,20 @@ class ProgramUpdater(QWidget):
                 subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
                 print(f"{program_name} cloned successfully.")
             else:
-                print(f"Updating {program_name}...")
-                subprocess.check_call(['git', '-C', program_directory, 'stash'])
-                subprocess.check_call(['git', '-C', program_directory, 'pull'])
-                print(f"{program_name} updated successfully.")
+                # Fetch the latest changes from the remote repository
+                subprocess.check_call(['git', '-C', program_directory, 'fetch'])
+                
+                # Check if there are any differences between local and remote branches
+                diff = subprocess.check_output(['git', '-C', program_directory, 'diff', 'HEAD', 'FETCH_HEAD'])
+
+                # If there's no difference, no need to update
+                if not diff:
+                    print(f"No changes found for {program_name}.")
+                else:
+                    print(f"Updating {program_name}...")
+                    subprocess.check_call(['git', '-C', program_directory, 'stash'])
+                    subprocess.check_call(['git', '-C', program_directory, 'pull'])
+                    print(f"{program_name} updated successfully.")
         except subprocess.CalledProcessError as e:
             print(f"Error updating {program_name}: {e}")
  
