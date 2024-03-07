@@ -117,6 +117,8 @@ class RoundedTextLabel(QWidget):
         painter.end()
  
 class ProgramUpdater(QWidget):
+    def __init__(self):
+        super().__init__()
     light_style = '''
         QWidget {
             background-color: #eee;
@@ -263,48 +265,29 @@ class ProgramUpdater(QWidget):
         self.update_and_launch_program()
  
     def update_program_direct(self, program_name, git_repo_url):
-        program_directory = os.path.join(os.getcwd(), program_name)
+        # Get the user's Desktop path
+        desktop_path = os.path.join(os.path.expanduser('~'), 'Documents')
+        
+        # Create the "Elysium Launcher" folder on the Desktop if it doesn't exist
+        elysium_launcher_path = os.path.join(desktop_path, "Elysium Launcher")
+        if not os.path.exists(elysium_launcher_path):
+            os.makedirs(elysium_launcher_path)
+          
+        # Adjust the program directory to be inside the "Elysium Launcher" folder
+        program_directory = os.path.join(elysium_launcher_path, program_name)
+
         try:
             if not os.path.exists(program_directory):
-                # Clone the repo if the directory does not exist
                 print(f"Cloning {program_name} from {git_repo_url}...")
                 subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
                 print(f"{program_name} cloned successfully.")
             else:
-                # Stash local changes or reset to HEAD before pulling updates
                 print(f"Updating {program_name}...")
-                subprocess.check_call(['git', '-C', program_directory, 'stash'])  # Stash local changes
+                subprocess.check_call(['git', '-C', program_directory, 'stash'])
                 subprocess.check_call(['git', '-C', program_directory, 'pull'])
                 print(f"{program_name} updated successfully.")
         except subprocess.CalledProcessError as e:
             print(f"Error updating {program_name}: {e}")
- 
-    def update_and_launch_program(self):
-        if self.selected_program:
-            try:
-                program_info = self.programs[self.selected_program]
-                git_repo_url = "https://github.com/placeholder/repo.git"  # Placeholder URL
-                program_name = self.selected_program
-                script_name = program_info["script"]
-                # Update the program before launching
-                self.update_program_direct(program_name, git_repo_url)
- 
-                # Launch the program
-                program_path = os.path.join(os.getcwd(), program_name, script_name)
-                launch_command = ['python', program_path]
- 
-                # Pass the dark mode style sheet to the launched program
-                launch_env = os.environ.copy()
-                launch_env['LAUNCHER_STYLE'] = self.dark_style
- 
-                subprocess.Popen(launch_command, env=launch_env)
- 
-                QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
-                self.close()
-            except Exception as e:
-                QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
-        else:
-            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
  
     def download_file(self, url, local_filename):
         try:
