@@ -268,24 +268,25 @@ class ProgramUpdater(QWidget):
     def update_program_direct(self, program_name, git_repo_url):
         # Get the user's Desktop path
         desktop_path = os.path.join(os.path.expanduser('~'), 'Documents')
-        
+    
         # Create the "Elysium Launcher" folder on the Desktop if it doesn't exist
         elysium_launcher_path = os.path.join(desktop_path, "Elysium Launcher")
         if not os.path.exists(elysium_launcher_path):
             os.makedirs(elysium_launcher_path)
-          
+      
         # Adjust the program directory to be inside the "Elysium Launcher" folder
         program_directory = os.path.join(elysium_launcher_path, program_name)
 
         try:
-            if not os.path.exists(program_directory):
+            # Check if the directory exists and has files in it (i.e., is not empty)
+            if not os.path.exists(program_directory) or not os.listdir(program_directory):
                 print(f"Cloning {program_name} from {git_repo_url}...")
                 subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
                 print(f"{program_name} cloned successfully.")
             else:
-                print(f"Updating {program_name}...")
-                subprocess.check_call(['git', '-C', program_directory, 'stash'])
-                subprocess.check_call(['git', '-C', program_directory, 'pull'])
+                print(f"Existing installation of {program_name} found. Updating...")
+                subprocess.check_call(['git', '-C', program_directory, 'fetch', '--all'])
+                subprocess.check_call(['git', '-C', program_directory, 'reset', '--hard', 'origin/master'])
                 print(f"{program_name} updated successfully.")
         except subprocess.CalledProcessError as e:
             print(f"Error updating {program_name}: {e}")
