@@ -266,18 +266,11 @@ class ProgramUpdater(QWidget):
         self.update_and_launch_program()
  
     def update_program_direct(self, program_name, git_repo_url):
-        # Get the user's Desktop path
-        desktop_path = os.path.join(os.path.expanduser('~'), 'Documents')
-    
-        # Create the "Elysium Launcher" folder on the Desktop if it doesn't exist
-        elysium_launcher_path = os.path.join(desktop_path, "Elysium Launcher")
-        if not os.path.exists(elysium_launcher_path):
-            os.makedirs(elysium_launcher_path)
-      
-        # Adjust the program directory to be inside the "Elysium Launcher" folder
-        program_directory = os.path.join(elysium_launcher_path, program_name)
-
         try:
+            # Specify the absolute path where you want the repository to be cloned or updated
+            base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+            program_directory = os.path.join(base_directory, program_name)
+
             # Check if the directory exists and has files in it (i.e., is not empty)
             if not os.path.exists(program_directory) or not os.listdir(program_directory):
                 print(f"Cloning {program_name} from {git_repo_url}...")
