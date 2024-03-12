@@ -304,31 +304,37 @@ class ProgramUpdater(QWidget):
         except requests.RequestException as e:
             print(f"Error downloading file from {url}: {e}")
 
-    def update_and_launch_program(self):
-        if self.selected_program:
-            try:
-                program_info = self.programs[self.selected_program]
-                git_repo_url = program_info.get("git_repo_url", "")
-                program_name = self.selected_program
-                script_name = program_info["script"]
-                self.update_program_direct(program_name, git_repo_url)
+def update_and_launch_program(self):
+    if self.selected_program:
+        try:
+            program_info = self.programs[self.selected_program]
+            git_repo_url = program_info.get("git_repo_url", "")
+            program_name = self.selected_program
+            script_name = program_info["script"]
+            self.update_program_direct(program_name, git_repo_url)
 
-                documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
-                elysium_launcher_path = os.path.join(documents_path, "Elysium Launcher")
-                program_directory = os.path.join(elysium_launcher_path, program_name)
-                program_path = os.path.join(program_directory, script_name)
+            # Dynamically get the current user's Documents path
+            documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
+            elysium_launcher_path = os.path.join(documents_path, "Elysium Launcher")
+            program_directory = os.path.join(elysium_launcher_path, program_name)
 
-                if not os.path.exists(program_path):
-                    QMessageBox.warning(self, 'Error', f"The script {script_name} does not exist at {program_path}")
-                    return
+            # Here's the change: Specify the path to the mobile Python interpreter
+            mobile_python_path = os.path.join(elysium_launcher_path, "ELYSIUM Python", "python") # Assuming 'python' is the mobile Python interpreter executable
 
-                subprocess.Popen(['python', program_path], shell=True)
+            program_path = os.path.join(program_directory, script_name)
 
-                QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
-            except Exception as e:
-                QMessageBox.warning(self, 'Error', f"Error launching {program_name}: {str(e)}")
-        else:
-            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
+            if not os.path.exists(program_path):
+                QMessageBox.warning(self, 'Error', f"The script {script_name} does not exist at {program_path}")
+                return
+
+            # Use the mobile Python interpreter to launch the script
+            subprocess.Popen([mobile_python_path, program_path], shell=True)
+
+            QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', f"Error launching {program_name}: {str(e)}")
+    else:
+        QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
 
 def main():
