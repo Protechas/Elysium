@@ -188,7 +188,7 @@ class ProgramUpdater(QWidget):
         self.init_ui()
  
         # Update programs from GitHub
-        self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
+        self.update_program_direct("DFR", "https://github.com/Protechas/DFR.git")
         self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
         self.update_program_direct("ELYSIUM Python", "https://github.com/ShaneProtech/ELYSIUM-Python")
 
@@ -271,19 +271,18 @@ class ProgramUpdater(QWidget):
         self.update_and_launch_program()
  
     def update_program_direct(self, program_name, git_repo_url):
-        # Get the user's Desktop path
-        desktop_path = os.path.join(os.path.expanduser('~'), 'Documents')
+        # Correctly get the user's Documents path
+        documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
     
-        # Create the "Elysium Launcher" folder on the Desktop if it doesn't exist
-        elysium_launcher_path = os.path.join(desktop_path, "Elysium Launcher")
+        # Correctly create the "Elysium Launcher" folder in Documents if it doesn't exist
+        elysium_launcher_path = os.path.join(documents_path, "Elysium Launcher")
         if not os.path.exists(elysium_launcher_path):
             os.makedirs(elysium_launcher_path)
       
-        # Adjust the program directory to be inside the "Elysium Launcher" folder
+        # Ensure the program directory is correctly set within the "Elysium Launcher" folder
         program_directory = os.path.join(elysium_launcher_path, program_name)
 
         try:
-            # Check if the directory exists and has files in it (i.e., is not empty)
             if not os.path.exists(program_directory) or not os.listdir(program_directory):
                 print(f"Cloning {program_name} from {git_repo_url}...")
                 subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
@@ -309,28 +308,28 @@ class ProgramUpdater(QWidget):
         if self.selected_program:
             try:
                 program_info = self.programs[self.selected_program]
-                git_repo_url = "https://github.com/placeholder/repo.git"  # Placeholder URL
+                git_repo_url = program_info.get("git_repo_url", "")
                 program_name = self.selected_program
                 script_name = program_info["script"]
-                # Update the program before launching
                 self.update_program_direct(program_name, git_repo_url)
- 
-                # Launch the program
-                program_path = os.path.join(os.getcwd(), program_name, script_name)
-                launch_command = ['python', program_path]
- 
-                # Pass the dark mode style sheet to the launched program
-                launch_env = os.environ.copy()
-                launch_env['LAUNCHER_STYLE'] = self.dark_style
- 
-                subprocess.Popen(launch_command, env=launch_env)
- 
+
+                documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
+                elysium_launcher_path = os.path.join(documents_path, "Elysium Launcher")
+                program_directory = os.path.join(elysium_launcher_path, program_name)
+                program_path = os.path.join(program_directory, script_name)
+
+                if not os.path.exists(program_path):
+                    QMessageBox.warning(self, 'Error', f"The script {script_name} does not exist at {program_path}")
+                    return
+
+                subprocess.Popen(['python', program_path], shell=True)
+
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
-                self.close()
             except Exception as e:
-                QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
+                QMessageBox.warning(self, 'Error', f"Error launching {program_name}: {str(e)}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
+
 
 def main():
     app = QApplication(sys.argv)
