@@ -1,36 +1,6 @@
 import subprocess
 import sys
 import os
- 
-required_packages = {
-    'pymupdf': 'fitz',
-    'requests': 'requests',
-    'PyQt5': 'PyQt5',
-    'numpy': 'numpy',
-    'pandas': 'pandas',
-    'cx_Freeze': 'cx_Freeze',
-    'openpyxl': 'openpyxl',
-    'PyPDF2': 'PyPDF2',
-    # Add other required packages and their import names here
-}
-def install_and_import(package, import_name=None):
-    if not import_name:
-        import_name = package
-    try:
-        # Try importing the package
-        __import__(import_name)
-        print(f"{package} is already installed.")
-    except ImportError:
-        # If the package is not found, install it
-        print(f"Installing {package}...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-        # Import after installation
-        __import__(import_name)
-        print(f"{package} installed successfully.")
-
-for package, import_name in required_packages.items():
-    install_and_import(package, import_name)
- 
 import requests
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider
@@ -178,8 +148,8 @@ class ProgramUpdater(QWidget):
         super().__init__()
         # Updated programs dictionary to include script names and icon paths
         self.programs = {
-            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\excel_formatting_icon.ico", "script": "DFR.py"},
-            "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\pdf_multitool_icon.ico", "script": "SI Multitool.py"},
+            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\excel_formatting_icon.ico", "script": "DFR.py"},
+            "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\pdf_multitool_icon.ico", "script": "SI Multitool.py"},
             ################################
             # ADD ADDITIONAL PROGRAMS HERE #
             ################################
@@ -271,18 +241,12 @@ class ProgramUpdater(QWidget):
         self.update_and_launch_program()
  
     def update_program_direct(self, program_name, git_repo_url):
-        # Correctly get the user's Documents path
-        documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
-    
-        # Correctly create the "Elysium Launcher" folder in Documents if it doesn't exist
-        elysium_launcher_path = os.path.join(documents_path, "Elysium Launcher")
-        if not os.path.exists(elysium_launcher_path):
-            os.makedirs(elysium_launcher_path)
-      
-        # Ensure the program directory is correctly set within the "Elysium Launcher" folder
-        program_directory = os.path.join(elysium_launcher_path, program_name)
-
         try:
+            # Specify the absolute path where you want the repository to be cloned or updated
+            base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+            program_directory = os.path.join(base_directory, program_name)
+
+            # Check if the directory exists and has files in it (i.e., is not empty)
             if not os.path.exists(program_directory) or not os.listdir(program_directory):
                 print(f"Cloning {program_name} from {git_repo_url}...")
                 subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
@@ -304,38 +268,37 @@ class ProgramUpdater(QWidget):
         except requests.RequestException as e:
             print(f"Error downloading file from {url}: {e}")
 
-def update_and_launch_program(self):
-    if self.selected_program:
-        try:
-            program_info = self.programs[self.selected_program]
-            git_repo_url = program_info.get("git_repo_url", "")
-            program_name = self.selected_program
-            script_name = program_info["script"]
-            self.update_program_direct(program_name, git_repo_url)
-
-            # Dynamically get the current user's Documents path
-            documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
-            elysium_launcher_path = os.path.join(documents_path, "Elysium Launcher")
-            program_directory = os.path.join(elysium_launcher_path, program_name)
-
-            # Here's the change: Specify the path to the mobile Python interpreter
-            mobile_python_path = os.path.join(elysium_launcher_path, "ELYSIUM Python", "python") # Assuming 'python' is the mobile Python interpreter executable
-
-            program_path = os.path.join(program_directory, script_name)
-
-            if not os.path.exists(program_path):
-                QMessageBox.warning(self, 'Error', f"The script {script_name} does not exist at {program_path}")
-                return
-
-            # Use the mobile Python interpreter to launch the script
-            subprocess.Popen([mobile_python_path, program_path], shell=True)
-
-            QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
-        except Exception as e:
-            QMessageBox.warning(self, 'Error', f"Error launching {program_name}: {str(e)}")
-    else:
-        QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
-
+    def update_and_launch_program(self):
+        if self.selected_program:
+            try:
+                program_info = self.programs[self.selected_program]
+                git_repo_url = program_info.get("git_repo_url", "")
+                program_name = self.selected_program
+                script_name = program_info["script"]
+                self.update_program_direct(program_name, git_repo_url)
+    
+                # Dynamically get the current user's Documents path
+                documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
+                elysium_path = os.path.join(documents_path, "Elysium")
+                program_directory = os.path.join(elysium_path, program_name)
+    
+                # Here's the change: Specify the path to the mobile Python interpreter
+                mobile_python_path = os.path.join(elysium_path, "ELYSIUM Python", "python") # Assuming 'python' is the mobile Python interpreter executable
+    
+                program_path = os.path.join(program_directory, script_name)
+    
+                if not os.path.exists(program_path):
+                    QMessageBox.warning(self, 'Error', f"The script {script_name} does not exist at {program_path}")
+                    return
+    
+                # Use the mobile Python interpreter to launch the script
+                subprocess.Popen([mobile_python_path, program_path], shell=True)
+    
+                QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
+            except Exception as e:
+                QMessageBox.warning(self, 'Error', f"Error launching {program_name}: {str(e)}")
+        else:
+            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
 def main():
     app = QApplication(sys.argv)
@@ -353,7 +316,7 @@ def main():
     updater.move(center_x, center_y)
     
     updater.show()
-    updater.setWindowIcon(QIcon(r"C:\\Users\\SEang\\Desktop\\ELYSIUM_icon.ico"))
+    updater.setWindowIcon(QIcon("C:\\Users\\SEang\\Desktop\\Advanced Launcher\\ELYSIUM_icon.ico"))  # Set application icon
 
     sys.exit(app.exec_())
 
