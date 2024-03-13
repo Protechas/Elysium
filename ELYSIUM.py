@@ -148,8 +148,8 @@ class ProgramUpdater(QWidget):
         super().__init__()
         # Updated programs dictionary to include script names and icon paths
         self.programs = {
-            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\excel_formatting_icon.ico", "script": "DFR.py"},
-            "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\pdf_multitool_icon.ico", "script": "SI Multitool.py"},
+            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\DFR.ico", "script": "DFR.py"},
+            "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\SI-MultiTool.ico", "script": "SI Multitool.py"},
             ################################
             # ADD ADDITIONAL PROGRAMS HERE #
             ################################
@@ -158,9 +158,8 @@ class ProgramUpdater(QWidget):
         self.init_ui()
  
         # Update programs from GitHub
-        self.update_program_direct("DFR", "https://github.com/Protechas/DFR.git")
-        self.update_program_direct("SI MultiTool", "https://github.com/Protechas/SI-MultiTool.git")
-        self.update_program_direct("ELYSIUM Python", "https://github.com/Protechas/ELYSIUM-Python.git")
+        self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
+        self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
 
         # Set dark mode by default
         self.setStyleSheet(self.dark_style)
@@ -272,31 +271,29 @@ class ProgramUpdater(QWidget):
         if self.selected_program:
             try:
                 program_info = self.programs[self.selected_program]
-                git_repo_url = program_info.get("git_repo_url", "")
+                git_repo_url = "https://github.com/placeholder/repo.git"  # Placeholder URL
                 program_name = self.selected_program
                 script_name = program_info["script"]
+                # Update the program before launching
                 self.update_program_direct(program_name, git_repo_url)
-    
-                # Dynamically get the current user's Documents path
-                documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
-                elysium_path = os.path.join(documents_path, "Elysium")
-                program_directory = os.path.join(elysium_path, program_name)
-    
-                # Here's the change: Specify the path to the mobile Python interpreter
-                mobile_python_path = os.path.join(elysium_path, "ELYSIUM Python", "python") # Assuming 'python' is the mobile Python interpreter executable
-    
-                program_path = os.path.join(program_directory, script_name)
-    
-                if not os.path.exists(program_path):
-                    QMessageBox.warning(self, 'Error', f"The script {script_name} does not exist at {program_path}")
-                    return
-    
-                # Use the mobile Python interpreter to launch the script
-                subprocess.Popen(['python', program_path], shell=True)
-    
+
+                # Get the installation directory
+                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', program_name)
+
+                # Launch the program
+                program_path = os.path.join(installation_directory, script_name)
+                launch_command = ['python', program_path]
+
+                # Pass the dark mode style sheet to the launched program
+                launch_env = os.environ.copy()
+                launch_env['LAUNCHER_STYLE'] = self.dark_style
+
+                subprocess.Popen(launch_command, env=launch_env)
+
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
+                self.close()
             except Exception as e:
-                QMessageBox.warning(self, 'Error', f"Error launching {program_name}: {str(e)}")
+                QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
@@ -316,7 +313,7 @@ def main():
     updater.move(center_x, center_y)
     
     updater.show()
-    updater.setWindowIcon(QIcon("C:\\Users\\SEang\\Desktop\\Advanced Launcher\\ELYSIUM_icon.ico"))  # Set application icon
+    updater.setWindowIcon(QIcon(r"C:\\Users\\SEang\\Desktop\\ELYSIUM_icon.ico"))
 
     sys.exit(app.exec_())
 
