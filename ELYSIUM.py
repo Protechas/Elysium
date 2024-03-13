@@ -289,7 +289,7 @@ class ProgramUpdater(QWidget):
                 program_path = os.path.join(program_directory, script_name)
 
                 # Specify the path to the Python executable you wish to use
-                mobile_python_path = os.path.join(elysium_path, "ELYSIUM Python", "python.exe")
+                mobile_python_path = os.path.join(elysium_path, "ELYSIUM Python", "python.exe")###
 
 
 
@@ -297,7 +297,7 @@ class ProgramUpdater(QWidget):
                     QMessageBox.warning(self, 'Error', f"The script {script_name} does not exist at {program_path}")
                     return
 
-                subprocess.Popen(['python', program_path], shell=True)
+                subprocess.Popen(['python', program_path], shell=True)###
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
             except Exception as e:
