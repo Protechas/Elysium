@@ -292,7 +292,7 @@ class ProgramUpdater(QWidget):
                     return
     
                 # Use the mobile Python interpreter to launch the script
-                subprocess.Popen([mobile_python_path, program_path], shell=True)
+                subprocess.Popen(['python', program_path], shell=True)
     
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
             except Exception as e:
