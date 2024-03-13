@@ -244,12 +244,12 @@ class ProgramUpdater(QWidget):
         # Correctly get the user's Documents path
         documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
     
-        # Correctly create the "Elysium Launcher" folder in Documents if it doesn't exist
+        # Correctly create the "Elysium" folder in Documents if it doesn't exist
         elysium_path = os.path.join(documents_path, "Elysium")
         if not os.path.exists(elysium_path):
             os.makedirs(elysium_path)
       
-        # Ensure the program directory is correctly set within the "Elysium Launcher" folder
+        # Ensure the program directory is correctly set within the "Elysium" folder
         program_directory = os.path.join(elysium_path, program_name)
 
         try:
@@ -290,6 +290,7 @@ class ProgramUpdater(QWidget):
 
                 # Specify the path to the Python executable you wish to use
                 mobile_python_path = os.path.join(elysium_path, "ELYSIUM Python", "python.exe")
+
 
 
                 if not os.path.exists(program_path):
