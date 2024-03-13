@@ -241,18 +241,12 @@ class ProgramUpdater(QWidget):
         self.update_and_launch_program()
  
     def update_program_direct(self, program_name, git_repo_url):
-        # Correctly get the user's Documents path
-        documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
-    
-        # Correctly create the "Elysium" folder in Documents if it doesn't exist
-        elysium_path = os.path.join(documents_path, "Elysium")
-        if not os.path.exists(elysium_path):
-            os.makedirs(elysium_path)
-      
-        # Ensure the program directory is correctly set within the "Elysium" folder
-        program_directory = os.path.join(elysium_path, program_name)
-
         try:
+            # Specify the absolute path where you want the repository to be cloned or updated
+            base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+            program_directory = os.path.join(base_directory, program_name)
+
+            # Check if the directory exists and has files in it (i.e., is not empty)
             if not os.path.exists(program_directory) or not os.listdir(program_directory):
                 print(f"Cloning {program_name} from {git_repo_url}...")
                 subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
@@ -282,30 +276,29 @@ class ProgramUpdater(QWidget):
                 program_name = self.selected_program
                 script_name = program_info["script"]
                 self.update_program_direct(program_name, git_repo_url)
-
+    
+                # Dynamically get the current user's Documents path
                 documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
                 elysium_path = os.path.join(documents_path, "Elysium")
                 program_directory = os.path.join(elysium_path, program_name)
+    
+                # Here's the change: Specify the path to the mobile Python interpreter
+                mobile_python_path = os.path.join(elysium_path, "ELYSIUM Python", "python") # Assuming 'python' is the mobile Python interpreter executable
+    
                 program_path = os.path.join(program_directory, script_name)
-
-                # Specify the path to the Python executable you wish to use
-                mobile_python_path = os.path.join(elysium_path, "ELYSIUM Python", "python.exe")###
-
-
-
+    
                 if not os.path.exists(program_path):
                     QMessageBox.warning(self, 'Error', f"The script {script_name} does not exist at {program_path}")
                     return
-
-                subprocess.Popen(['python', program_path], shell=True)###
-
+    
+                # Use the mobile Python interpreter to launch the script
+                subprocess.Popen([mobile_python_path, program_path], shell=True)
+    
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
             except Exception as e:
                 QMessageBox.warning(self, 'Error', f"Error launching {program_name}: {str(e)}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
-
-# 
 
 def main():
     app = QApplication(sys.argv)
