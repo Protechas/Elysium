@@ -245,12 +245,12 @@ class ProgramUpdater(QWidget):
         documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
     
         # Correctly create the "Elysium Launcher" folder in Documents if it doesn't exist
-        elysium_launcher_path = os.path.join(documents_path, "Elysium Launcher")
-        if not os.path.exists(elysium_launcher_path):
-            os.makedirs(elysium_launcher_path)
+        elysium_path = os.path.join(documents_path, "Elysium")
+        if not os.path.exists(elysium_path):
+            os.makedirs(elysium_path)
       
         # Ensure the program directory is correctly set within the "Elysium Launcher" folder
-        program_directory = os.path.join(elysium_launcher_path, program_name)
+        program_directory = os.path.join(elysium_path, program_name)
 
         try:
             if not os.path.exists(program_directory) or not os.listdir(program_directory):
@@ -284,12 +284,12 @@ class ProgramUpdater(QWidget):
                 self.update_program_direct(program_name, git_repo_url)
 
                 documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
-                elysium_launcher_path = os.path.join(documents_path, "Elysium Launcher")
-                program_directory = os.path.join(elysium_launcher_path, program_name)
+                elysium_path = os.path.join(documents_path, "Elysium")
+                program_directory = os.path.join(elysium_path, program_name)
                 program_path = os.path.join(program_directory, script_name)
 
                 # Specify the path to the Python executable you wish to use
-                mobile_python_path = os.path.join(elysium_launcher_path, "ELYSIUM Python", "python.exe")
+                mobile_python_path = os.path.join(elysium_path, "ELYSIUM Python", "python.exe")
 
 
                 if not os.path.exists(program_path):
