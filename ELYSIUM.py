@@ -148,8 +148,8 @@ class ProgramUpdater(QWidget):
         super().__init__()
         # Updated programs dictionary to include script names and icon paths
         self.programs = {
-            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\DFR.ico", "script": "DFR.py"},
-            "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\SI-MultiTool.ico", "script": "SI Multitool.py"},
+            "DFR": {"icon": "C:\\Users\\dromero3\\Downloads\\DFR.ico", "script": "DFR.py"},
+            "SI MultiTool": {"icon": "C:\\Users\\dromero3\\Downloads\\SI-MultiTool.ico", "script": "SI Multitool.py"},
             ################################
             # ADD ADDITIONAL PROGRAMS HERE #
             ################################
@@ -313,7 +313,7 @@ def main():
     updater.move(center_x, center_y)
     
     updater.show()
-    updater.setWindowIcon(QIcon(r"C:\\Users\\SEang\\Desktop\\ELYSIUM_icon.ico"))
+    updater.setWindowIcon(QIcon(r"C:\\Users\\dromero3\\Downloads\\ELYSIUM_icon.ico"))
 
     sys.exit(app.exec_())
 
