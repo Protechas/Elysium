@@ -2,12 +2,14 @@ import subprocess
 import sys
 import os
 import requests
+import shutil
+from subprocess import Popen
+import openpyxl
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QMainWindow
 from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics
 from PyQt5.QtCore import Qt
-from subprocess import Popen
-import openpyxl
+
  
 class ProgramIcon(QWidget):
     clicked = pyqtSignal(str)  # Emit the program name as a signal argument
@@ -94,6 +96,7 @@ class RoundedTextLabel(QWidget):
 class ProgramUpdater(QWidget):
     def __init__(self):
         super().__init__()
+        
     light_style = '''
         QWidget {
             background-color: #eee;
@@ -268,16 +271,51 @@ class ProgramUpdater(QWidget):
                 print(f"{program_name} updated successfully.")
         except subprocess.CalledProcessError as e:
             print(f"Error updating {program_name}: {e}")
- 
+     
     def download_file(self, url, local_filename):
         try:
             with requests.get(url, stream=True) as r:
+                r.raise_for_status()
                 with open(local_filename, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
+                        
         except requests.RequestException as e:
             print(f"Error downloading file from {url}: {e}")
+            
+    def relocate_icons(dfr_icon_name, si_multitool_icon_name):
+        # Get the directory of the currently executing script
+        icons_source_path = os.path.dirname(os.path.abspath(__file__))
 
+        # Base directory in the user's Documents folder
+        documents_path = os.path.join(os.environ['USERPROFILE'], 'Documents')
+        elysium_path = os.path.join(documents_path, 'Elysium')
+
+        # Define the source and target paths for the DFR icon
+        dfr_icon_source = os.path.join(icons_source_path, dfr_icon_name)
+        dfr_icon_target = os.path.join(elysium_path, 'DFR', dfr_icon_name)
+
+        # Define the source and target paths for the SI Multitool icon
+        si_multitool_icon_source = os.path.join(icons_source_path, si_multitool_icon_name)
+        si_multitool_icon_target = os.path.join(elysium_path, 'SI Multitool', si_multitool_icon_name)
+
+        # Check if the Elysium directory exists, just in case
+        if not os.path.exists(elysium_path):
+            os.makedirs(elysium_path)
+
+        # Move the DFR icon if it exists at the source path
+        if os.path.exists(dfr_icon_source):
+            os.makedirs(os.path.dirname(dfr_icon_target), exist_ok=True)  # Ensure the target directory exists
+            shutil.move(dfr_icon_source, dfr_icon_target)
+
+        # Move the SI Multitool icon if it exists at the source path
+        if os.path.exists(si_multitool_icon_source):
+            os.makedirs(os.path.dirname(si_multitool_icon_target), exist_ok=True)  # Ensure the target directory exists
+            shutil.move(si_multitool_icon_source, si_multitool_icon_target)
+
+    # Example usage with the icon names:
+    relocate_icons('DFR.ico', 'SI-MultiTool.ico')
+            
     def update_and_launch_program(self):
         if self.selected_program:
             try:
