@@ -3,7 +3,7 @@ import sys
 import os
 import requests
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QMainWindow
 from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics
 from PyQt5.QtCore import Qt
 from subprocess import Popen
@@ -146,13 +146,19 @@ class ProgramUpdater(QWidget):
  
     def __init__(self):
         super().__init__()
-        # Updated programs dictionary to include script names and icon paths
+        # Base path to Elysium folder in the current user's Documents
+        base_path = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+        
+        # Updated programs dictionary to include script names and dynamically set icon paths
         self.programs = {
-            "DFR": {"icon": "C:\\Users\\dromero3\\Downloads\\DFR.ico", "script": "DFR.py"},
-            "SI MultiTool": {"icon": "C:\\Users\\dromero3\\Downloads\\SI-MultiTool.ico", "script": "SI Multitool.py"},
-            ################################
-            # ADD ADDITIONAL PROGRAMS HERE #
-            ################################
+            "DFR": {
+                "icon": os.path.join(base_path, 'DFR', 'DFR.ico'),
+                "script": os.path.join(base_path, 'DFR', 'DFR.py')
+            },
+            "SI MultiTool": {
+                "icon": os.path.join(base_path, 'SI Multitool', 'SI-MultiTool.ico'),
+                "script": os.path.join(base_path, 'SI Multitool', 'SI Multitool.py')
+            },
         }
         self.selected_program = None
         self.init_ui()
@@ -167,7 +173,12 @@ class ProgramUpdater(QWidget):
     def init_ui(self):
         self.setWindowTitle('ELYSIUM')
         self.setGeometry(100, 100, 400, 300)
- 
+
+        # Set the window icon
+        user_documents = os.path.join(os.environ['USERPROFILE'], 'Documents')
+        icon_path = os.path.join(user_documents, 'Elysium', 'ELYSIUM_icon.ico')
+        self.setWindowIcon(QIcon(icon_path))
+
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)  # Center the header label vertically
  
