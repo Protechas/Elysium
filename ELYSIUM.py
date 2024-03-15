@@ -269,8 +269,40 @@ class ProgramUpdater(QWidget):
                 subprocess.check_call(['git', '-C', program_directory, 'fetch', '--all'])
                 subprocess.check_call(['git', '-C', program_directory, 'reset', '--hard', 'origin/master'])
                 print(f"{program_name} updated successfully.")
+                
+            # After updating, relocate the icon files
+            self.relocate_icons(program_name)
+
         except subprocess.CalledProcessError as e:
             print(f"Error updating {program_name}: {e}")
+                
+    def relocate_icons(self, program_name):
+        # Define the icon names
+        icon_names = {
+            "DFR": "DFR.ico",
+            "SI MultiTool": "SI-MultiTool.ico"
+        }
+        
+        # Get the icon name for the current program
+        icon_name = icon_names.get(program_name)
+        if not icon_name:
+            return  # If the icon name is not defined, return early
+
+        # Get the directory of the currently executing script
+        icons_source_path = os.path.dirname(os.path.abspath(__file__))
+
+        # Base directory in the user's Documents folder
+        documents_path = os.path.join(os.environ['USERPROFILE'], 'Documents')
+        elysium_path = os.path.join(documents_path, 'Elysium')
+
+        # Define the source and target paths for the icon
+        icon_source = os.path.join(icons_source_path, icon_name)
+        icon_target = os.path.join(elysium_path, program_name, icon_name)
+
+        # Move the icon if it exists at the source path
+        if os.path.exists(icon_source):
+            os.makedirs(os.path.dirname(icon_target), exist_ok=True)  # Ensure the target directory exists
+            shutil.move(icon_source, icon_target)
      
     def download_file(self, url, local_filename):
         try:
@@ -282,39 +314,6 @@ class ProgramUpdater(QWidget):
                         
         except requests.RequestException as e:
             print(f"Error downloading file from {url}: {e}")
-            
-    def relocate_icons(dfr_icon_name, si_multitool_icon_name):
-        # Get the directory of the currently executing script
-        icons_source_path = os.path.dirname(os.path.abspath(__file__))
-
-        # Base directory in the user's Documents folder
-        documents_path = os.path.join(os.environ['USERPROFILE'], 'Documents')
-        elysium_path = os.path.join(documents_path, 'Elysium')
-
-        # Define the source and target paths for the DFR icon
-        dfr_icon_source = os.path.join(icons_source_path, dfr_icon_name)
-        dfr_icon_target = os.path.join(elysium_path, 'DFR', dfr_icon_name)
-
-        # Define the source and target paths for the SI Multitool icon
-        si_multitool_icon_source = os.path.join(icons_source_path, si_multitool_icon_name)
-        si_multitool_icon_target = os.path.join(elysium_path, 'SI Multitool', si_multitool_icon_name)
-
-        # Check if the Elysium directory exists, just in case
-        if not os.path.exists(elysium_path):
-            os.makedirs(elysium_path)
-
-        # Move the DFR icon if it exists at the source path
-        if os.path.exists(dfr_icon_source):
-            os.makedirs(os.path.dirname(dfr_icon_target), exist_ok=True)  # Ensure the target directory exists
-            shutil.move(dfr_icon_source, dfr_icon_target)
-
-        # Move the SI Multitool icon if it exists at the source path
-        if os.path.exists(si_multitool_icon_source):
-            os.makedirs(os.path.dirname(si_multitool_icon_target), exist_ok=True)  # Ensure the target directory exists
-            shutil.move(si_multitool_icon_source, si_multitool_icon_target)
-
-    # Example usage with the icon names:
-    relocate_icons('DFR.ico', 'SI-MultiTool.ico')
             
     def update_and_launch_program(self):
         if self.selected_program:
