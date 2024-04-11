@@ -167,8 +167,8 @@ class ProgramUpdater(QWidget):
         self.init_ui()
  
         # Update programs from GitHub
-        self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
-        self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
+        self.update_program_direct("DFR", "https://github.com/Protechas/DFR.git")
+        self.update_program_direct("SI MultiTool", "https://github.com/Protechas/SI-MultiTool.git")
 
         # Set dark mode by default
         self.setStyleSheet(self.dark_style)
