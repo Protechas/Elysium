@@ -2,14 +2,12 @@ import subprocess
 import sys
 import os
 import requests
-import shutil
-from subprocess import Popen
-import openpyxl
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QMainWindow
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider
 from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics
 from PyQt5.QtCore import Qt
-
+from subprocess import Popen
+import openpyxl
  
 class ProgramIcon(QWidget):
     clicked = pyqtSignal(str)  # Emit the program name as a signal argument
@@ -96,7 +94,6 @@ class RoundedTextLabel(QWidget):
 class ProgramUpdater(QWidget):
     def __init__(self):
         super().__init__()
-        
     light_style = '''
         QWidget {
             background-color: #eee;
@@ -149,26 +146,20 @@ class ProgramUpdater(QWidget):
  
     def __init__(self):
         super().__init__()
-        # Base path to Elysium folder in the current user's Documents
-        base_path = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
-        
-        # Updated programs dictionary to include script names and dynamically set icon paths
+        # Updated programs dictionary to include script names and icon paths
         self.programs = {
-            "DFR": {
-                "icon": os.path.join(base_path, 'DFR', 'DFR.ico'),
-                "script": os.path.join(base_path, 'DFR', 'DFR.py')
-            },
-            "SI MultiTool": {
-                "icon": os.path.join(base_path, 'SI Multitool', 'SI-MultiTool.ico'),
-                "script": os.path.join(base_path, 'SI Multitool', 'SI Multitool.py')
-            },
+            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\DFR.ico", "script": "DFR.py"},
+            "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\SI-MultiTool.ico", "script": "SI Multitool.py"},
+            ################################
+            # ADD ADDITIONAL PROGRAMS HERE #
+            ################################
         }
         self.selected_program = None
         self.init_ui()
  
         # Update programs from GitHub
-        self.update_program_direct("DFR", "https://github.com/Protechas/DFR.git")
-        self.update_program_direct("SI MultiTool", "https://github.com/Protechas/SI-MultiTool.git")
+        self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
+        self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
 
         # Set dark mode by default
         self.setStyleSheet(self.dark_style)
@@ -176,12 +167,7 @@ class ProgramUpdater(QWidget):
     def init_ui(self):
         self.setWindowTitle('ELYSIUM')
         self.setGeometry(100, 100, 400, 300)
-
-        # Set the window icon
-        user_documents = os.path.join(os.environ['USERPROFILE'], 'Documents')
-        icon_path = os.path.join(user_documents, 'Elysium', 'ELYSIUM_icon.ico')
-        self.setWindowIcon(QIcon(icon_path))
-
+ 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)  # Center the header label vertically
  
@@ -269,52 +255,18 @@ class ProgramUpdater(QWidget):
                 subprocess.check_call(['git', '-C', program_directory, 'fetch', '--all'])
                 subprocess.check_call(['git', '-C', program_directory, 'reset', '--hard', 'origin/master'])
                 print(f"{program_name} updated successfully.")
-                
-            # After updating, relocate the icon files
-            self.relocate_icons(program_name)
-
         except subprocess.CalledProcessError as e:
             print(f"Error updating {program_name}: {e}")
-                
-    def relocate_icons(self, program_name):
-        # Define the icon names
-        icon_names = {
-            "DFR": "DFR.ico",
-            "SI MultiTool": "SI-MultiTool.ico"
-        }
-        
-        # Get the icon name for the current program
-        icon_name = icon_names.get(program_name)
-        if not icon_name:
-            return  # If the icon name is not defined, return early
-
-        # Get the directory of the currently executing script
-        icons_source_path = os.path.dirname(os.path.abspath(__file__))
-
-        # Base directory in the user's Documents folder
-        documents_path = os.path.join(os.environ['USERPROFILE'], 'Documents')
-        elysium_path = os.path.join(documents_path, 'Elysium')
-
-        # Define the source and target paths for the icon
-        icon_source = os.path.join(icons_source_path, icon_name)
-        icon_target = os.path.join(elysium_path, program_name, icon_name)
-
-        # Move the icon if it exists at the source path
-        if os.path.exists(icon_source):
-            os.makedirs(os.path.dirname(icon_target), exist_ok=True)  # Ensure the target directory exists
-            shutil.move(icon_source, icon_target)
-     
+ 
     def download_file(self, url, local_filename):
         try:
             with requests.get(url, stream=True) as r:
-                r.raise_for_status()
                 with open(local_filename, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
-                        
         except requests.RequestException as e:
             print(f"Error downloading file from {url}: {e}")
-            
+
     def update_and_launch_program(self):
         if self.selected_program:
             try:
@@ -336,7 +288,8 @@ class ProgramUpdater(QWidget):
                 launch_env = os.environ.copy()
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
 
-                subprocess.Popen(launch_command, env=launch_env)
+                # Modify the subprocess.Popen call to suppress the command prompt window
+                subprocess.Popen(launch_command, env=launch_env, creationflags=subprocess.CREATE_NO_WINDOW)
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
                 self.close()
@@ -361,7 +314,7 @@ def main():
     updater.move(center_x, center_y)
     
     updater.show()
-    updater.setWindowIcon(QIcon(r"C:\\Users\\dromero3\\Downloads\\ELYSIUM_icon.ico"))
+    updater.setWindowIcon(QIcon(r"C:\\Users\\SEang\\Desktop\\Advanced Launcher\\ELYSIUM_icon.ico"))
 
     sys.exit(app.exec_())
 
