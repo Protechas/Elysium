@@ -8,10 +8,24 @@ from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient
 from PyQt5.QtCore import Qt
 from subprocess import Popen
 import openpyxl
+import win32com.client
  
+def download_icon(url):
+    try:
+        filename = url.split('/')[-1]  # Extracts file name from URL
+        local_path = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', filename)
+        response = requests.get(url)
+        response.raise_for_status()  # Raises HTTPError for bad responses
+        with open(local_path, 'wb') as f:
+            f.write(response.content)
+        return local_path
+    except requests.RequestException as e:
+        print(f"Failed to download icon: {e}")
+        return None
+
 class ProgramIcon(QWidget):
     clicked = pyqtSignal(str)  # Emit the program name as a signal argument
- 
+
     def __init__(self, program, icon_path, icon_size=(70, 70)):
         super().__init__()
         self.program = program
@@ -20,43 +34,42 @@ class ProgramIcon(QWidget):
         self.highlight = False
         self.setFixedSize(100, 120)  # Increased height to accommodate program name
         self.setCursor(Qt.PointingHandCursor)
- 
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.program)  # Emit the program name
- 
+
     def enterEvent(self, event):
         self.highlight = True
         self.update()
- 
+
     def leaveEvent(self, event):
         self.highlight = False
         self.update()
- 
+
     def paintEvent(self, event):
         painter = QPainter(self)
         pixmap = QPixmap(self.icon_path)
- 
+
         # Scale pixmap based on icon_size
-        pixmap = pixmap.scaled(QSize(*self.icon_size), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
- 
+        pixmap = pixmap.scaled(QSize(*self.icon_size), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+
         if self.highlight:
             highlight_gradient = QColor(0, 128, 128)  # Teal color
-            highlight_gradient.setAlpha(255)  # Set opacity (fully opaque)
             gradient_rect = event.rect()
             gradient_rect.setHeight(20)  # Height of the gradient border
             gradient = QLinearGradient(gradient_rect.topLeft(), gradient_rect.bottomLeft())
             gradient.setColorAt(0, highlight_gradient)
             gradient.setColorAt(1, QColor(0, 0, 0, 0))  # Fully transparent color
             painter.fillRect(gradient_rect, gradient)
- 
+
         # Center the pixmap horizontally
         pixmap_x = (self.width() - pixmap.width()) // 2
         painter.drawPixmap(pixmap_x, 5, pixmap)
- 
+
         # Draw program name below the icon
         painter.setFont(QFont('Arial', 10))
-        text_rect = QRect(0, 60, self.width(), 40)
+        text_rect = QRect(0, 80, self.width(), 40)
         painter.drawText(text_rect, Qt.AlignCenter, self.program)
  
 class RoundedTextLabel(QWidget):
@@ -146,62 +159,84 @@ class ProgramUpdater(QWidget):
  
     def __init__(self):
         super().__init__()
-        # Updated programs dictionary to include script names and icon paths
-        self.programs = {
-            "DFR": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\DFR.ico", "script": "DFR.py"},
-            "SI MultiTool": {"icon": "C:\\Users\\SEang\\Desktop\\Advanced Launcher\\SI-MultiTool.ico", "script": "SI Multitool.py"},
-            ################################
-            # ADD ADDITIONAL PROGRAMS HERE #
-            ################################
-        }
-        self.selected_program = None
-        self.init_ui()
- 
-        # Update programs from GitHub
-        self.update_program_direct("DFR", "https://github.com/Romero221/DFR.git")
-        self.update_program_direct("SI MultiTool", "https://github.com/ShaneProtech/SI-MultiTool.git")
+        self.base_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium')
+        if not os.path.exists(self.base_dir):
+            os.makedirs(self.base_dir)
 
-        # Set dark mode by default
+        self.desktop_icon_url = "https://raw.githubusercontent.com/Protechas/Elysium/main/ELYSIUM_icon.ico"
+        self.desktop_icon_path = self.download_icon(self.desktop_icon_url)
+
+        self.programs = {
+            "DFR": {
+                "icon_url": "https://raw.githubusercontent.com/Protechas/DFR/main/DFR.ico", 
+                "script": "DFR.py"
+            },
+            "SI MultiTool": {
+                "icon_url": "https://raw.githubusercontent.com/Protechas/SI-MultiTool/main/SI-Multitool.ico", 
+                "script": "SI Multitool.py"
+            },
+        }
+
+        self.init_ui()
+        self.update_program_direct("DFR", "https://github.com/Protechas/DFR.git")
+        self.update_program_direct("SI MultiTool", "https://github.com/Protechas/SI-MultiTool.git")
         self.setStyleSheet(self.dark_style)
- 
+
+        if self.desktop_icon_path:
+            self.setWindowIcon(QIcon(self.desktop_icon_path))
+            self.create_desktop_shortcut()
+
+    def create_desktop_shortcut(self):
+        try:
+            shell = win32com.client.Dispatch("WScript.Shell")
+            shortcut_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'ELYSIUM.lnk')
+            shortcut = shell.CreateShortCut(shortcut_path)
+            shortcut.Targetpath = sys.executable
+            shortcut.Arguments = os.path.abspath(__file__)  # Assumes this script is directly runnable
+            shortcut.WorkingDirectory = os.path.dirname(os.path.abspath(__file__))
+            shortcut.IconLocation = self.desktop_icon_path
+            shortcut.save()
+        except Exception as e:
+            print("Error setting desktop icon:", e)
+
     def init_ui(self):
         self.setWindowTitle('ELYSIUM')
         self.setGeometry(100, 100, 400, 300)
- 
+
         layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)  # Center the header label vertically
- 
-        # Header label
+        layout.setAlignment(Qt.AlignCenter)
+
         header_label = QLabel('ELYSIUM', self)
         header_label.setAlignment(Qt.AlignCenter)
         header_label.setStyleSheet('''
             QLabel {
                 font-size: 36px;
                 font-weight: bold;
-                color: #008080; /* Blue text */
+                color: #008080;
             }
         ''')
         layout.addWidget(header_label)
- 
-        # Create a grid layout for the icons
+
         grid_layout = QGridLayout()
         grid_layout.setAlignment(Qt.AlignCenter)
-        grid_layout.setSpacing(10)  # Adjust spacing between icons
+        grid_layout.setSpacing(10)
         row = 0
         col = 0
- 
-        for program, program_info in self.programs.items():
-            icon_widget = ProgramIcon(program, program_info["icon"])
-            icon_widget.clicked.connect(self.program_clicked)  # Connect to the program_clicked method directly
-            grid_layout.addWidget(icon_widget, row, col)
-            col += 1
-            if col == 3:
-                row += 1
-                col = 0
- 
+
+        # Iterate through each program and create ProgramIcon
+        for program, info in self.programs.items():
+            icon_path = self.download_icon(info["icon_url"])
+            if icon_path:
+                icon_widget = ProgramIcon(program, icon_path)
+                icon_widget.clicked.connect(self.program_clicked)
+                grid_layout.addWidget(icon_widget, row, col)
+                col += 1
+                if col == 3:
+                    row += 1
+                    col = 0
+
         layout.addLayout(grid_layout)
- 
-        # Add Dark Mode/Light Mode button
+
         self.dark_mode_toggle_button = QPushButton("Light Mode", self)
         self.dark_mode_toggle_button.clicked.connect(self.toggle_dark_mode)
         self.dark_mode_toggle_button.setFixedSize(100, 40)
@@ -209,19 +244,34 @@ class ProgramUpdater(QWidget):
             QPushButton {
                 border-radius: 10px;
                 background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 teal, stop:1 teal);
-                color: white; /* White text */
-                border: 4px solid transparent; /* Transparent border */
-                padding: 15px 5px; /* Larger padding */
-                margin-bottom: 15px; /* Add margin at the bottom */
-                width: 200px; /* Set width */
+                color: white;
+                border: 4px solid transparent;
+                padding: 15px 5px;
+                margin-bottom: 15px;
+                width: 200px;
             }
             QPushButton:hover {
-                background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 #008080, stop:1 #add8e6); /* Darker teal on hover */
+                background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 #008080, stop:1 #add8e6);
             }
         ''')
         layout.addWidget(self.dark_mode_toggle_button)
- 
+
         self.setLayout(layout)
+
+    def download_icon(self, url):
+        try:
+            local_filename = os.path.join(self.base_dir, os.path.basename(url))
+            response = requests.get(url)
+            response.raise_for_status()
+            with open(local_filename, 'wb') as f:
+                f.write(response.content)
+            return local_filename
+        except requests.RequestException as e:
+            print(f"Failed to download icon: {e}")
+            return None
+
+    def program_clicked(self, program_name):
+        QMessageBox.information(self, "Program Selected", f"You selected {program_name}")
  
     def program_clicked(self, program):
         self.selected_program = program
@@ -300,7 +350,7 @@ class ProgramUpdater(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    updater = ProgramUpdater()
+    updater = ProgramUpdater()  # Assuming ProgramUpdater is a QWidget or similar
     
     # Get the screen geometry to calculate the center position
     screen_geometry = app.primaryScreen().geometry()
@@ -313,9 +363,25 @@ def main():
     # Set the window position to the center
     updater.move(center_x, center_y)
     
-    updater.show()
-    updater.setWindowIcon(QIcon(r"C:\\Users\\SEang\\Desktop\\Advanced Launcher\\ELYSIUM_icon.ico"))
+    # Retrieve the path to the user's Documents folder and append the 'Elysium' folder name
+    icon_path = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'ELYSIUM_icon.ico')
 
+    # Set the window icon
+    updater.setWindowIcon(QIcon(icon_path))
+
+    updater.show()
+
+    # Set desktop icon
+    try:
+        shell = win32com.client.Dispatch("WScript.Shell")
+        shortcut = shell.CreateShortCut(os.path.join(os.path.expanduser('~'), 'Desktop', 'ELYSIUM.lnk'))
+        shortcut.Targetpath = os.path.abspath(sys.argv[0])
+        shortcut.WorkingDirectory = os.path.abspath(os.path.dirname(sys.argv[0]))
+        shortcut.IconLocation = icon_path
+        shortcut.save()
+    except Exception as e:
+        print("Error setting desktop icon:", e)
+        
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
