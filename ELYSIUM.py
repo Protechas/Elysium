@@ -295,15 +295,18 @@ class ProgramUpdater(QWidget):
             base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
             program_directory = os.path.join(base_directory, program_name)
 
+            # Define the full path to the git executable
+            git_executable = "C:\\Program Files\\Git\\bin\\git.exe"  # Adjust this path as necessary
+
             # Check if the directory exists and has files in it (i.e., is not empty)
             if not os.path.exists(program_directory) or not os.listdir(program_directory):
                 print(f"Cloning {program_name} from {git_repo_url}...")
-                subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
+                subprocess.check_call([git_executable, 'clone', git_repo_url, program_directory])
                 print(f"{program_name} cloned successfully.")
             else:
                 print(f"Existing installation of {program_name} found. Updating...")
-                subprocess.check_call(['git', '-C', program_directory, 'fetch', '--all'])
-                subprocess.check_call(['git', '-C', program_directory, 'reset', '--hard', 'origin/master'])
+                subprocess.check_call([git_executable, '-C', program_directory, 'fetch', '--all'])
+                subprocess.check_call([git_executable, '-C', program_directory, 'reset', '--hard', 'origin/master'])
                 print(f"{program_name} updated successfully.")
         except subprocess.CalledProcessError as e:
             print(f"Error updating {program_name}: {e}")
@@ -384,5 +387,8 @@ def main():
         
     sys.exit(app.exec_())
 
-if __name__ == "__main__":
+def new_func(main):
     main()
+
+if __name__ == "__main__":
+    new_func(main)
