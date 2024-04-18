@@ -2,13 +2,14 @@ import subprocess
 import sys
 import os
 import requests
+import psutil
+import openpyxl
+import win32com.client
+from PyQt5.QtCore import Qt
+from subprocess import Popen
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider
 from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics
-from PyQt5.QtCore import Qt
-from subprocess import Popen
-import openpyxl
-import win32com.client
  
 def download_icon(url):
     try:
@@ -319,6 +320,19 @@ class ProgramUpdater(QWidget):
                         f.write(chunk)
         except requests.RequestException as e:
             print(f"Error downloading file from {url}: {e}")
+                     
+    def is_program_running(self, program_name):
+        # This function checks for the given program's process names
+        # You will need to know the exact name of the executable to check for it.
+        for process in psutil.process_iter(['pid', 'name']):
+            try:
+                # This compares the process name with your program's name
+                if program_name.lower() in process.info['name'].lower():
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        return False
+
 
     def update_and_launch_program(self):
         if self.selected_program:
@@ -350,10 +364,15 @@ class ProgramUpdater(QWidget):
                 QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
-
+    
 def main():
     app = QApplication(sys.argv)
     updater = ProgramUpdater()  # Assuming ProgramUpdater is a QWidget or similar
+    
+        # This checks if the program is already running
+    if updater.is_program_running('ELYSIUM'):
+        QMessageBox.warning(None, 'Instance already running', 'ELYSIUM is already running. Please close the existing instance before opening a new one.')
+        sys.exit()  # Exit the program if there is already an instance running
     
     # Get the screen geometry to calculate the center position
     screen_geometry = app.primaryScreen().geometry()
@@ -387,8 +406,5 @@ def main():
         
     sys.exit(app.exec_())
 
-def new_func(main):
-    main()
-
 if __name__ == "__main__":
-    new_func(main)
+    main()
