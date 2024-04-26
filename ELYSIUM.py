@@ -187,19 +187,6 @@ class ProgramUpdater(QWidget):
         self.update_program_direct("Hyper", "https://github.com/Protechas/Hyper.git")
         self.setStyleSheet(self.dark_style)
 
-    def create_desktop_shortcut(self):
-        try:
-            shell = win32com.client.Dispatch("WScript.Shell")
-            shortcut_path = os.path.join(os.path.expanduser('~'), 'Desktop', 'ELYSIUM.lnk')
-            shortcut = shell.CreateShortCut(shortcut_path)
-            shortcut.Targetpath = sys.executable
-            shortcut.Arguments = os.path.abspath(__file__)  # Assumes this script is directly runnable
-            shortcut.WorkingDirectory = os.path.dirname(os.path.abspath(__file__))
-            shortcut.IconLocation = self.desktop_icon_path
-            shortcut.save()
-        except Exception as e:
-            print("Error setting desktop icon:", e)
-
     def init_ui(self):
         self.setWindowTitle('ELYSIUM')
         self.setGeometry(100, 100, 400, 300)
