@@ -358,17 +358,6 @@ def main():
     updater.setWindowIcon(QIcon(icon_path))
 
     updater.show()
-
-    # Set desktop icon
-    try:
-        shell = win32com.client.Dispatch("WScript.Shell")
-        shortcut = shell.CreateShortCut(os.path.join(os.path.expanduser('~'), 'Desktop', 'ELYSIUM.lnk'))
-        shortcut.Targetpath = os.path.abspath(sys.argv[0])
-        shortcut.WorkingDirectory = os.path.abspath(os.path.dirname(sys.argv[0]))
-        shortcut.IconLocation = icon_path
-        shortcut.save()
-    except Exception as e:
-        print("Error setting desktop icon:", e)
         
     sys.exit(app.exec_())
 
