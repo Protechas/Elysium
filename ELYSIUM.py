@@ -189,6 +189,7 @@ class ProgramUpdater(QWidget):
         self.update_program_direct("DFR", "https://github.com/Protechas/DFR.git")
         self.update_program_direct("SI MultiTool", "https://github.com/Protechas/SI-MultiTool.git")
         self.update_program_direct("Hyper", "https://github.com/Protechas/Hyper.git")
+        self.update_program_direct("Analyzer+", "https://github.com/Protechas/AnalyzerPlus")
         self.setStyleSheet(self.dark_style)
 
     def init_ui(self):
