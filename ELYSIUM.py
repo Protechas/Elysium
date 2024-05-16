@@ -178,6 +178,10 @@ class ProgramUpdater(QWidget):
             "Hyper": {  # Add your program here
                 "icon_url": "https://raw.githubusercontent.com/Protechas/Hyper/master/Hyper.ico",  # Replace with the actual URL
                 "script": "Hyper.py"
+            },
+            "Analyzer+": {
+                "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
+                "script": "Analyzer+.py"
             }
         }
 
