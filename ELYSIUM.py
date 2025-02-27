@@ -484,28 +484,83 @@ class ProgramUpdater(QWidget):
                 program_info = self.programs[self.selected_program]
                 program_name = self.selected_program
                 script_name = program_info["script"]
+                folder_name = program_info.get('repo_name', program_name)
                 
-                # Update the program before launching using the actual repo URL
-                self.update_program_direct(program_name, program_info["repo_url"])
-
-                # Get the installation directory
-                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', program_name)
-
-                # Launch the program
+                # Get the installation directory using the correct folder name
+                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
                 program_path = os.path.join(installation_directory, script_name)
-                launch_command = ['python', program_path]
 
-                # Pass the dark mode style sheet to the launched program
-                launch_env = os.environ.copy()
-                launch_env['LAUNCHER_STYLE'] = self.dark_style
+                # Verify the script exists
+                if not os.path.exists(program_path):
+                    raise FileNotFoundError(f"Script not found at {program_path}")
 
-                # Modify the subprocess.Popen call to suppress the command prompt window
-                subprocess.Popen(launch_command, env=launch_env, creationflags=subprocess.CREATE_NO_WINDOW)
+                # Launch with full error capture
+                try:
+                    # Pass the dark mode style sheet and asyncio settings to the launched program
+                    launch_env = os.environ.copy()
+                    launch_env['LAUNCHER_STYLE'] = self.dark_style
+                    launch_env['PYTHONPATH'] = installation_directory
+                    # Add asyncio environment variables for Python 3.12 compatibility
+                    launch_env['PYTHONASYNCIO'] = '1'
+                    launch_env['PYTHONASYNCIODEBUG'] = '1'
 
-                QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
+                    # For SI Opportunity Manager, use a different launch command
+                    if program_name == "SI Op Manager":
+                        # Use pythonw to avoid console window and set asyncio policy
+                        launch_command = [
+                            'pythonw', '-c',
+                            'import sys; '
+                            'import os; '
+                            'sys.path.insert(0, os.path.abspath(".")); '
+                            'import asyncio; '
+                            'import nest_asyncio; '
+                            'nest_asyncio.apply(); '
+                            'asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); '
+                            f'exec(open("{program_path}").read())'
+                        ]
+                    else:
+                        launch_command = ['python', program_path]
 
+                    # Run with error output captured
+                    process = subprocess.Popen(
+                        launch_command,
+                        env=launch_env,
+                        cwd=installation_directory,  # Set working directory
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    
+                    # Check immediate startup errors
+                    error_output = process.stderr.readline()
+                    if error_output:
+                        raise RuntimeError(f"Program startup error: {error_output}")
+
+                    QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
+
+                except Exception as launch_error:
+                    error_msg = f"Error launching {program_name}:\n{str(launch_error)}"
+                    if "ModuleNotFoundError" in str(launch_error):
+                        # Try to install required packages for SI Op Manager
+                        if program_name == "SI Op Manager":
+                            try:
+                                subprocess.run([sys.executable, '-m', 'pip', 'install', 'nest-asyncio'], check=True)
+                                subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 
+                                             os.path.join(installation_directory, 'requirements.txt')], check=True)
+                                # Try launching again after installing dependencies
+                                self.update_and_launch_program()
+                                return
+                            except Exception as pip_error:
+                                error_msg += f"\n\nFailed to install dependencies: {str(pip_error)}"
+                        error_msg += "\n\nMissing Python dependencies. Try running:\npip install -r requirements.txt"
+                    QMessageBox.critical(self, 'Launch Error', error_msg)
+                    return
+
+            except FileNotFoundError as e:
+                QMessageBox.critical(self, 'Error', str(e))
             except Exception as e:
-                QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
+                QMessageBox.critical(self, 'Error', f"Error with {program_name}:\n{str(e)}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
