@@ -262,7 +262,7 @@ class ProgramUpdater(QWidget):
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
-                "script": "run.py",
+                "script": "main.py",
                 "repo_name": "SI Opportunity Manager",
                 "repo_url": "https://github.com/Protechas/SI-Opportunity-Manager"
             }
