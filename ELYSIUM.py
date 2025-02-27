@@ -257,7 +257,7 @@ class ProgramUpdater(QWidget):
             },
             "Analyzer+": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
-                "script": "main.py",
+                "script": "Analyzer+.py",
                 "repo_url": "https://github.com/Protechas/AnalyzerPlus",
             },
             "SI Op Manager": {
