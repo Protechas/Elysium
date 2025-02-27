@@ -115,22 +115,48 @@ class GitUpdateThread(QThread):
         self.git_repo_url = git_repo_url
         self.program_directory = program_directory
 
+    def cleanup_directory(self):
+        """Clean up the directory before cloning"""
+        import shutil
+        if os.path.exists(self.program_directory):
+            try:
+                # First try to remove read-only flags
+                for root, dirs, files in os.walk(self.program_directory):
+                    for dir in dirs:
+                        try:
+                            os.chmod(os.path.join(root, dir), 0o777)
+                        except Exception:
+                            pass
+                    for file in files:
+                        try:
+                            os.chmod(os.path.join(root, file), 0o777)
+                        except Exception:
+                            pass
+                
+                # Try to remove the directory
+                try:
+                    shutil.rmtree(self.program_directory, ignore_errors=True)
+                    if os.path.exists(self.program_directory):
+                        subprocess.run(['rd', '/s', '/q', self.program_directory], shell=True, check=False)
+                except Exception as e:
+                    self.progress_signal.emit(f"Warning: Could not fully remove directory: {str(e)}")
+                
+                self.progress_signal.emit(f"Cleaned up old {self.program_name} installation")
+            except Exception as e:
+                self.progress_signal.emit(f"Warning: Partial cleanup of {self.program_name}: {str(e)}")
+                # Even if cleanup fails, we'll try to proceed with the clone
+
     def run(self):
         try:
-            if not os.path.exists(self.program_directory) or not os.listdir(self.program_directory):
-                self.progress_signal.emit(f"Cloning {self.program_name}...")
-                # Use shallow clone (--depth 1) and single branch for faster cloning
-                process = subprocess.Popen(
-                    ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
-                    stdout=PIPE, stderr=PIPE, universal_newlines=True
-                )
-            else:
-                self.progress_signal.emit(f"Updating {self.program_name}...")
-                # Fetch only the latest changes
-                process = subprocess.Popen(
-                    ['git', '-C', self.program_directory, 'pull', '--depth', '1', '--no-tags'],
-                    stdout=PIPE, stderr=PIPE, universal_newlines=True
-                )
+            # Always clean up first for a fresh clone
+            self.cleanup_directory()
+            
+            self.progress_signal.emit(f"Cloning {self.program_name}...")
+            # Use shallow clone (--depth 1) and single branch for faster cloning
+            process = subprocess.Popen(
+                ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
+                stdout=PIPE, stderr=PIPE, universal_newlines=True
+            )
 
             while True:
                 output = process.stderr.readline()
@@ -236,7 +262,7 @@ class ProgramUpdater(QWidget):
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
-                "script": "run.py",
+                "script": "main.py",
                 "repo_name": "SI Opportunity Manager",
                 "repo_url": "https://github.com/Protechas/SI-Opportunity-Manager"
             }
@@ -390,14 +416,67 @@ class ProgramUpdater(QWidget):
         self.status_label.setText(message)
 
     def update_all_programs(self):
-        self.completed_updates = 0
-        self.total_updates = len(self.programs)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.show()
+        try:
+            # Clean up the entire Elysium folder first
+            base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+            if os.path.exists(base_directory):
+                import shutil
+                # Keep the icons but remove all other contents
+                icon_files = [f for f in os.listdir(base_directory) if f.endswith('.ico')]
+                
+                for item in os.listdir(base_directory):
+                    item_path = os.path.join(base_directory, item)
+                    if item not in icon_files:  # Skip icon files
+                        if os.path.isdir(item_path):
+                            try:
+                                # First try to remove read-only flags
+                                for root, dirs, files in os.walk(item_path):
+                                    for dir in dirs:
+                                        try:
+                                            os.chmod(os.path.join(root, dir), 0o777)
+                                        except Exception:
+                                            pass
+                                    for file in files:
+                                        try:
+                                            os.chmod(os.path.join(root, file), 0o777)
+                                        except Exception:
+                                            pass
+                            
+                                # Try to remove directory
+                                shutil.rmtree(item_path, ignore_errors=True)
+                                if os.path.exists(item_path):
+                                    subprocess.run(['rd', '/s', '/q', item_path], shell=True, check=False)
+                            except Exception as e:
+                                print(f"Warning: Could not remove directory {item}: {str(e)}")
+                        else:
+                            try:
+                                os.chmod(item_path, 0o777)
+                                os.remove(item_path)
+                            except Exception as e:
+                                print(f"Warning: Could not remove file {item}: {str(e)}")
+            
+            self.status_label.setText("Cleaned up old installations")
         
-        for program_name, info in self.programs.items():
-            self.update_program_direct(program_name, info["repo_url"])
+            self.completed_updates = 0
+            self.total_updates = len(self.programs)
+            self.progress_bar.setMaximum(100)
+            self.progress_bar.setValue(0)
+            self.progress_bar.show()
+            
+            for program_name, info in self.programs.items():
+                self.update_program_direct(program_name, info["repo_url"])
+
+        except Exception as e:
+            self.status_label.setText(f"Warning: Partial cleanup completed: {str(e)}")
+            # Continue with updates even if cleanup wasn't perfect
+            self.completed_updates = 0
+            self.total_updates = len(self.programs)
+            self.progress_bar.setMaximum(100)
+            self.progress_bar.setValue(0)
+            self.progress_bar.show()
+            
+            for program_name, info in self.programs.items():
+                self.update_program_direct(program_name, info["repo_url"])
 
     def update_and_launch_program(self):
         if self.selected_program:
@@ -405,28 +484,90 @@ class ProgramUpdater(QWidget):
                 program_info = self.programs[self.selected_program]
                 program_name = self.selected_program
                 script_name = program_info["script"]
+                folder_name = program_info.get('repo_name', program_name)
                 
-                # Update the program before launching using the actual repo URL
-                self.update_program_direct(program_name, program_info["repo_url"])
-
-                # Get the installation directory
-                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', program_name)
-
-                # Launch the program
+                # Get the installation directory using the correct folder name
+                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
                 program_path = os.path.join(installation_directory, script_name)
-                launch_command = ['python', program_path]
 
-                # Pass the dark mode style sheet to the launched program
-                launch_env = os.environ.copy()
-                launch_env['LAUNCHER_STYLE'] = self.dark_style
+                # Verify the script exists
+                if not os.path.exists(program_path):
+                    raise FileNotFoundError(f"Script not found at {program_path}")
 
-                # Modify the subprocess.Popen call to suppress the command prompt window
-                subprocess.Popen(launch_command, env=launch_env, creationflags=subprocess.CREATE_NO_WINDOW)
+                # Launch with full error capture
+                try:
+                    # Pass the dark mode style sheet and asyncio settings to the launched program
+                    launch_env = os.environ.copy()
+                    launch_env['LAUNCHER_STYLE'] = self.dark_style
+                    launch_env['PYTHONPATH'] = installation_directory
 
-                QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
+                    # For SI Opportunity Manager, use a different launch command
+                    if program_name == "SI Op Manager":
+                        # First install required packages
+                        try:
+                            subprocess.run([sys.executable, '-m', 'pip', 'install', 'nest-asyncio'], check=True)
+                            requirements_file = os.path.join(installation_directory, 'requirements.txt')
+                            if os.path.exists(requirements_file):
+                                subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', requirements_file], check=True)
+                        except Exception as pip_error:
+                            print(f"Warning: Could not install dependencies: {str(pip_error)}")
 
+                        # Create a launcher script
+                        launcher_content = f'''import os
+import sys
+import asyncio
+import nest_asyncio
+
+# Set up paths
+os.chdir(r"{installation_directory}")
+sys.path.insert(0, r"{installation_directory}")
+
+# Set up asyncio
+nest_asyncio.apply()
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# Run the main script
+with open(r"{program_path}", "r") as f:
+    exec(f.read())
+'''
+                        launcher_path = os.path.join(installation_directory, '_launcher.py')
+                        with open(launcher_path, 'w') as f:
+                            f.write(launcher_content)
+
+                        # Launch using the launcher script
+                        launch_command = ['pythonw', launcher_path]
+                    else:
+                        launch_command = ['python', program_path]
+
+                    # Run with error output captured
+                    process = subprocess.Popen(
+                        launch_command,
+                        env=launch_env,
+                        cwd=installation_directory,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    
+                    # Check immediate startup errors
+                    error_output = process.stderr.readline()
+                    if error_output:
+                        raise RuntimeError(f"Program startup error: {error_output}")
+
+                    QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
+
+                except Exception as launch_error:
+                    error_msg = f"Error launching {program_name}:\n{str(launch_error)}"
+                    if "ModuleNotFoundError" in str(launch_error):
+                        error_msg += "\n\nMissing Python dependencies. Try running:\npip install -r requirements.txt"
+                    QMessageBox.critical(self, 'Launch Error', error_msg)
+                    return
+
+            except FileNotFoundError as e:
+                QMessageBox.critical(self, 'Error', str(e))
             except Exception as e:
-                QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
+                QMessageBox.critical(self, 'Error', f"Error with {program_name}:\n{str(e)}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
