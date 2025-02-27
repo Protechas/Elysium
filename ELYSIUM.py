@@ -176,13 +176,16 @@ class ProgramUpdater(QWidget):
                 "script": "SI Multitool.py"
             },
             "Hyper": {  # Add your program here
-                "icon_url": "https://raw.githubusercontent.com/Protechas/Hyper/master/Hyper.ico",  # Replace with the actual URL
+                "icon_url": "https://raw.githubusercontent.com/Protechas/Hyper/master/Hyper.ico",
                 "script": "Hyper.py"
             },
             "Analyzer+": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
                 "script": "Analyzer+.py"
-            }
+            },
+            "SI Opportunity Manager": {
+                "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
+                "script": "run.py"
         }
 
         self.init_ui()
@@ -190,6 +193,7 @@ class ProgramUpdater(QWidget):
         self.update_program_direct("SI MultiTool", "https://github.com/Protechas/SI-MultiTool.git")
         self.update_program_direct("Hyper", "https://github.com/Protechas/Hyper.git")
         self.update_program_direct("Analyzer+", "https://github.com/Protechas/AnalyzerPlus")
+        self.update_program_direct("SI Opportunity Manager", "https://github.com/Protechas/SI-Opportunity-Manager")
         self.setStyleSheet(self.dark_style)
 
     def init_ui(self):
