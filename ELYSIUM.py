@@ -183,9 +183,10 @@ class ProgramUpdater(QWidget):
                 "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
                 "script": "Analyzer+.py"
             },
-            "SI Opportunity Manager": {
+            "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
-                "script": "run.py"
+                "script": "run.py",
+                "repo_name": "SI Opportunity Manager"
             }
         }
 
@@ -289,9 +290,10 @@ class ProgramUpdater(QWidget):
  
     def update_program_direct(self, program_name, git_repo_url):
         try:
-            # Specify the absolute path where you want the repository to be cloned or updated
             base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
-            program_directory = os.path.join(base_directory, program_name)
+            # Use repo_name if it exists, otherwise use program_name
+            folder_name = self.programs[program_name].get('repo_name', program_name)
+            program_directory = os.path.join(base_directory, folder_name)
 
             # Check if the directory exists and has files in it (i.e., is not empty)
             if not os.path.exists(program_directory) or not os.listdir(program_directory):
