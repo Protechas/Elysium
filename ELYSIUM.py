@@ -259,7 +259,6 @@ class ProgramUpdater(QWidget):
                 "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
                 "script": "main.py",
                 "repo_url": "https://github.com/Protechas/AnalyzerPlus",
-                "main_dir": "app"
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
