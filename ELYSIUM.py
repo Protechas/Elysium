@@ -512,11 +512,12 @@ class ProgramUpdater(QWidget):
                         except Exception as pip_error:
                             print(f"Warning: Could not install dependencies: {str(pip_error)}")
 
-                        # Create a launcher script
+                        # Create a launcher script that properly handles the main window
                         launcher_content = f'''import os
 import sys
 import asyncio
 import nest_asyncio
+from PyQt5.QtWidgets import QApplication
 
 # Set up paths
 os.chdir(r"{installation_directory}")
@@ -526,16 +527,22 @@ sys.path.insert(0, r"{installation_directory}")
 nest_asyncio.apply()
 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# Run the main script
+# Create QApplication instance
+app = QApplication(sys.argv)
+
+# Import and run the main script
 with open(r"{program_path}", "r") as f:
     exec(f.read())
+
+# Start the event loop
+sys.exit(app.exec_())
 '''
                         launcher_path = os.path.join(installation_directory, '_launcher.py')
                         with open(launcher_path, 'w') as f:
                             f.write(launcher_content)
 
-                        # Launch using the launcher script
-                        launch_command = ['pythonw', launcher_path]
+                        # Launch using python instead of pythonw to avoid the extra window
+                        launch_command = [sys.executable, launcher_path]
                     else:
                         launch_command = ['python', program_path]
 
@@ -544,7 +551,7 @@ with open(r"{program_path}", "r") as f:
                         launch_command,
                         env=launch_env,
                         cwd=installation_directory,
-                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True
