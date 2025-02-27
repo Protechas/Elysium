@@ -257,8 +257,9 @@ class ProgramUpdater(QWidget):
             },
             "Analyzer+": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
-                "script": "Analyzer+.py",
-                "repo_url": "https://github.com/Protechas/AnalyzerPlus"
+                "script": "main.py",
+                "repo_url": "https://github.com/Protechas/AnalyzerPlus",
+                "main_dir": "app"
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
@@ -488,6 +489,12 @@ class ProgramUpdater(QWidget):
                 
                 # Get the installation directory using the correct folder name
                 installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
+                
+                # Handle special case for Analyzer+ which has a different main directory
+                if program_name == "Analyzer+":
+                    main_dir = program_info.get('main_dir', '')
+                    installation_directory = os.path.join(installation_directory, main_dir)
+                
                 program_path = os.path.join(installation_directory, script_name)
 
                 # Verify the script exists
@@ -499,14 +506,14 @@ class ProgramUpdater(QWidget):
                     # Pass the dark mode style sheet and asyncio settings to the launched program
                     launch_env = os.environ.copy()
                     launch_env['LAUNCHER_STYLE'] = self.dark_style
-                    launch_env['PYTHONPATH'] = installation_directory
+                    launch_env['PYTHONPATH'] = os.path.dirname(installation_directory)  # Set PYTHONPATH to parent directory
 
                     # For SI Opportunity Manager, use a different launch command
                     if program_name == "SI Op Manager":
                         # First install required packages
                         try:
                             subprocess.run([sys.executable, '-m', 'pip', 'install', 'nest-asyncio'], check=True)
-                            requirements_file = os.path.join(installation_directory, 'requirements.txt')
+                            requirements_file = os.path.join(os.path.dirname(installation_directory), 'requirements.txt')
                             if os.path.exists(requirements_file):
                                 subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', requirements_file], check=True)
                         except Exception as pip_error:
@@ -521,7 +528,7 @@ from PyQt5.QtWidgets import QApplication
 
 # Set up paths
 os.chdir(r"{installation_directory}")
-sys.path.insert(0, r"{installation_directory}")
+sys.path.insert(0, r"{os.path.dirname(installation_directory)}")
 
 # Set up asyncio
 nest_asyncio.apply()
@@ -537,20 +544,23 @@ with open(r"{program_path}", "r") as f:
 # Start the event loop
 sys.exit(app.exec_())
 '''
-                        launcher_path = os.path.join(installation_directory, '_launcher.py')
+                        launcher_path = os.path.join(os.path.dirname(installation_directory), '_launcher.py')
                         with open(launcher_path, 'w') as f:
                             f.write(launcher_content)
 
                         # Launch using python instead of pythonw to avoid the extra window
                         launch_command = [sys.executable, launcher_path]
                     else:
-                        launch_command = ['python', program_path]
+                        # For Analyzer+, make sure we're in the right directory
+                        if program_name == "Analyzer+":
+                            os.chdir(os.path.dirname(installation_directory))  # Change to parent directory
+                        launch_command = [sys.executable, program_path]
 
                     # Run with error output captured
                     process = subprocess.Popen(
                         launch_command,
                         env=launch_env,
-                        cwd=installation_directory,
+                        cwd=os.path.dirname(installation_directory),  # Set working directory to parent
                         creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
