@@ -115,27 +115,22 @@ class GitUpdateThread(QThread):
         self.git_repo_url = git_repo_url
         self.program_directory = program_directory
 
-    def cleanup_directory(self):
-        """Clean up the directory before cloning"""
-        import shutil
-        if os.path.exists(self.program_directory):
-            try:
-                shutil.rmtree(self.program_directory)
-                self.progress_signal.emit(f"Cleaned up old {self.program_name} installation")
-            except Exception as e:
-                self.progress_signal.emit(f"Error cleaning up {self.program_name}: {str(e)}")
-
     def run(self):
         try:
-            # Always clean up first for a fresh clone
-            self.cleanup_directory()
-            
-            self.progress_signal.emit(f"Cloning {self.program_name}...")
-            # Use shallow clone (--depth 1) and single branch for faster cloning
-            process = subprocess.Popen(
-                ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
-                stdout=PIPE, stderr=PIPE, universal_newlines=True
-            )
+            if not os.path.exists(self.program_directory) or not os.listdir(self.program_directory):
+                self.progress_signal.emit(f"Cloning {self.program_name}...")
+                # Use shallow clone (--depth 1) and single branch for faster cloning
+                process = subprocess.Popen(
+                    ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
+                    stdout=PIPE, stderr=PIPE, universal_newlines=True
+                )
+            else:
+                self.progress_signal.emit(f"Updating {self.program_name}...")
+                # Fetch only the latest changes
+                process = subprocess.Popen(
+                    ['git', '-C', self.program_directory, 'pull', '--depth', '1', '--no-tags'],
+                    stdout=PIPE, stderr=PIPE, universal_newlines=True
+                )
 
             while True:
                 output = process.stderr.readline()
@@ -395,33 +390,14 @@ class ProgramUpdater(QWidget):
         self.status_label.setText(message)
 
     def update_all_programs(self):
-        try:
-            # Clean up the entire Elysium folder first
-            base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
-            if os.path.exists(base_directory):
-                import shutil
-                # Keep the icons but remove all other contents
-                icon_files = [f for f in os.listdir(base_directory) if f.endswith('.ico')]
-                for item in os.listdir(base_directory):
-                    item_path = os.path.join(base_directory, item)
-                    if os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
-                    elif item not in icon_files:
-                        os.remove(item_path)
-                self.status_label.setText("Cleaned up old installations")
-            
-            self.completed_updates = 0
-            self.total_updates = len(self.programs)
-            self.progress_bar.setMaximum(100)
-            self.progress_bar.setValue(0)
-            self.progress_bar.show()
-            
-            for program_name, info in self.programs.items():
-                self.update_program_direct(program_name, info["repo_url"])
-
-        except Exception as e:
-            self.status_label.setText(f"Error during cleanup: {str(e)}")
-            self.progress_bar.hide()
+        self.completed_updates = 0
+        self.total_updates = len(self.programs)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.show()
+        
+        for program_name, info in self.programs.items():
+            self.update_program_direct(program_name, info["repo_url"])
 
     def update_and_launch_program(self):
         if self.selected_program:
