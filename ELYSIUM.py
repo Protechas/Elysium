@@ -500,24 +500,42 @@ class ProgramUpdater(QWidget):
                     launch_env = os.environ.copy()
                     launch_env['LAUNCHER_STYLE'] = self.dark_style
                     launch_env['PYTHONPATH'] = installation_directory
-                    # Add asyncio environment variables for Python 3.12 compatibility
-                    launch_env['PYTHONASYNCIO'] = '1'
-                    launch_env['PYTHONASYNCIODEBUG'] = '1'
 
                     # For SI Opportunity Manager, use a different launch command
                     if program_name == "SI Op Manager":
-                        # Use pythonw to avoid console window and set asyncio policy
-                        launch_command = [
-                            'pythonw', '-c',
-                            'import sys; '
-                            'import os; '
-                            'sys.path.insert(0, os.path.abspath(".")); '
-                            'import asyncio; '
-                            'import nest_asyncio; '
-                            'nest_asyncio.apply(); '
-                            'asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); '
-                            f'exec(open("{program_path}").read())'
-                        ]
+                        # First install required packages
+                        try:
+                            subprocess.run([sys.executable, '-m', 'pip', 'install', 'nest-asyncio'], check=True)
+                            requirements_file = os.path.join(installation_directory, 'requirements.txt')
+                            if os.path.exists(requirements_file):
+                                subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', requirements_file], check=True)
+                        except Exception as pip_error:
+                            print(f"Warning: Could not install dependencies: {str(pip_error)}")
+
+                        # Create a launcher script
+                        launcher_content = f'''import os
+import sys
+import asyncio
+import nest_asyncio
+
+# Set up paths
+os.chdir(r"{installation_directory}")
+sys.path.insert(0, r"{installation_directory}")
+
+# Set up asyncio
+nest_asyncio.apply()
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# Run the main script
+with open(r"{program_path}", "r") as f:
+    exec(f.read())
+'''
+                        launcher_path = os.path.join(installation_directory, '_launcher.py')
+                        with open(launcher_path, 'w') as f:
+                            f.write(launcher_content)
+
+                        # Launch using the launcher script
+                        launch_command = ['pythonw', launcher_path]
                     else:
                         launch_command = ['python', program_path]
 
@@ -525,7 +543,7 @@ class ProgramUpdater(QWidget):
                     process = subprocess.Popen(
                         launch_command,
                         env=launch_env,
-                        cwd=installation_directory,  # Set working directory
+                        cwd=installation_directory,
                         creationflags=subprocess.CREATE_NO_WINDOW,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
@@ -542,17 +560,6 @@ class ProgramUpdater(QWidget):
                 except Exception as launch_error:
                     error_msg = f"Error launching {program_name}:\n{str(launch_error)}"
                     if "ModuleNotFoundError" in str(launch_error):
-                        # Try to install required packages for SI Op Manager
-                        if program_name == "SI Op Manager":
-                            try:
-                                subprocess.run([sys.executable, '-m', 'pip', 'install', 'nest-asyncio'], check=True)
-                                subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 
-                                             os.path.join(installation_directory, 'requirements.txt')], check=True)
-                                # Try launching again after installing dependencies
-                                self.update_and_launch_program()
-                                return
-                            except Exception as pip_error:
-                                error_msg += f"\n\nFailed to install dependencies: {str(pip_error)}"
                         error_msg += "\n\nMissing Python dependencies. Try running:\npip install -r requirements.txt"
                     QMessageBox.critical(self, 'Launch Error', error_msg)
                     return
