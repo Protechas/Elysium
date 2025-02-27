@@ -115,22 +115,48 @@ class GitUpdateThread(QThread):
         self.git_repo_url = git_repo_url
         self.program_directory = program_directory
 
+    def cleanup_directory(self):
+        """Clean up the directory before cloning"""
+        import shutil
+        if os.path.exists(self.program_directory):
+            try:
+                # First try to remove read-only flags
+                for root, dirs, files in os.walk(self.program_directory):
+                    for dir in dirs:
+                        try:
+                            os.chmod(os.path.join(root, dir), 0o777)
+                        except Exception:
+                            pass
+                    for file in files:
+                        try:
+                            os.chmod(os.path.join(root, file), 0o777)
+                        except Exception:
+                            pass
+                
+                # Try to remove the directory
+                try:
+                    shutil.rmtree(self.program_directory, ignore_errors=True)
+                    if os.path.exists(self.program_directory):
+                        subprocess.run(['rd', '/s', '/q', self.program_directory], shell=True, check=False)
+                except Exception as e:
+                    self.progress_signal.emit(f"Warning: Could not fully remove directory: {str(e)}")
+                
+                self.progress_signal.emit(f"Cleaned up old {self.program_name} installation")
+            except Exception as e:
+                self.progress_signal.emit(f"Warning: Partial cleanup of {self.program_name}: {str(e)}")
+                # Even if cleanup fails, we'll try to proceed with the clone
+
     def run(self):
         try:
-            if not os.path.exists(self.program_directory) or not os.listdir(self.program_directory):
-                self.progress_signal.emit(f"Cloning {self.program_name}...")
-                # Use shallow clone (--depth 1) and single branch for faster cloning
-                process = subprocess.Popen(
-                    ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
-                    stdout=PIPE, stderr=PIPE, universal_newlines=True
-                )
-            else:
-                self.progress_signal.emit(f"Updating {self.program_name}...")
-                # Fetch only the latest changes
-                process = subprocess.Popen(
-                    ['git', '-C', self.program_directory, 'pull', '--depth', '1', '--no-tags'],
-                    stdout=PIPE, stderr=PIPE, universal_newlines=True
-                )
+            # Always clean up first for a fresh clone
+            self.cleanup_directory()
+            
+            self.progress_signal.emit(f"Cloning {self.program_name}...")
+            # Use shallow clone (--depth 1) and single branch for faster cloning
+            process = subprocess.Popen(
+                ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
+                stdout=PIPE, stderr=PIPE, universal_newlines=True
+            )
 
             while True:
                 output = process.stderr.readline()
@@ -390,14 +416,67 @@ class ProgramUpdater(QWidget):
         self.status_label.setText(message)
 
     def update_all_programs(self):
-        self.completed_updates = 0
-        self.total_updates = len(self.programs)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.show()
+        try:
+            # Clean up the entire Elysium folder first
+            base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+            if os.path.exists(base_directory):
+                import shutil
+                # Keep the icons but remove all other contents
+                icon_files = [f for f in os.listdir(base_directory) if f.endswith('.ico')]
+                
+                for item in os.listdir(base_directory):
+                    item_path = os.path.join(base_directory, item)
+                    if item not in icon_files:  # Skip icon files
+                        if os.path.isdir(item_path):
+                            try:
+                                # First try to remove read-only flags
+                                for root, dirs, files in os.walk(item_path):
+                                    for dir in dirs:
+                                        try:
+                                            os.chmod(os.path.join(root, dir), 0o777)
+                                        except Exception:
+                                            pass
+                                    for file in files:
+                                        try:
+                                            os.chmod(os.path.join(root, file), 0o777)
+                                        except Exception:
+                                            pass
+                            
+                                # Try to remove directory
+                                shutil.rmtree(item_path, ignore_errors=True)
+                                if os.path.exists(item_path):
+                                    subprocess.run(['rd', '/s', '/q', item_path], shell=True, check=False)
+                            except Exception as e:
+                                print(f"Warning: Could not remove directory {item}: {str(e)}")
+                        else:
+                            try:
+                                os.chmod(item_path, 0o777)
+                                os.remove(item_path)
+                            except Exception as e:
+                                print(f"Warning: Could not remove file {item}: {str(e)}")
+            
+            self.status_label.setText("Cleaned up old installations")
         
-        for program_name, info in self.programs.items():
-            self.update_program_direct(program_name, info["repo_url"])
+            self.completed_updates = 0
+            self.total_updates = len(self.programs)
+            self.progress_bar.setMaximum(100)
+            self.progress_bar.setValue(0)
+            self.progress_bar.show()
+            
+            for program_name, info in self.programs.items():
+                self.update_program_direct(program_name, info["repo_url"])
+
+        except Exception as e:
+            self.status_label.setText(f"Warning: Partial cleanup completed: {str(e)}")
+            # Continue with updates even if cleanup wasn't perfect
+            self.completed_updates = 0
+            self.total_updates = len(self.programs)
+            self.progress_bar.setMaximum(100)
+            self.progress_bar.setValue(0)
+            self.progress_bar.show()
+            
+            for program_name, info in self.programs.items():
+                self.update_program_direct(program_name, info["repo_url"])
 
     def update_and_launch_program(self):
         if self.selected_program:
