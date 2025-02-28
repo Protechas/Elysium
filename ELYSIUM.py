@@ -345,12 +345,20 @@ class ProgramUpdater(QWidget):
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
                 launch_env['PYTHONPATH'] = installation_directory
 
-                # Modify the subprocess.Popen call to suppress the command prompt window
+                # Use pythonw.exe instead of python.exe to hide the console window
+                pythonw_path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+                
+                # Modify the subprocess.Popen call to completely hide the window
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+
                 subprocess.Popen(
-                    [sys.executable, program_path],
+                    [pythonw_path, program_path],
                     env=launch_env,
                     cwd=installation_directory,
-                    creationflags=subprocess.CREATE_NO_WINDOW
+                    startupinfo=startupinfo,
+                    creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
                 )
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
