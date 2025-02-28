@@ -2,15 +2,14 @@ import subprocess
 import sys
 import os
 import requests
-from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect, QThread
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QProgressBar
+from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider
 from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics
 from PyQt5.QtCore import Qt
-from subprocess import Popen, PIPE
+from subprocess import Popen
 import openpyxl
 import win32com.client
-import re
-
+ 
 def download_icon(url):
     try:
         filename = url.split('/')[-1]  # Extracts file name from URL
@@ -105,51 +104,9 @@ class RoundedTextLabel(QWidget):
  
         painter.end()
  
-class GitUpdateThread(QThread):
-    progress_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal()
-
-    def __init__(self, program_name, git_repo_url, program_directory):
-        super().__init__()
-        self.program_name = program_name
-        self.git_repo_url = git_repo_url
-        self.program_directory = program_directory
-
-    def run(self):
-        try:
-            if not os.path.exists(self.program_directory) or not os.listdir(self.program_directory):
-                self.progress_signal.emit(f"Cloning {self.program_name}...")
-                # Use shallow clone (--depth 1) and single branch for faster cloning
-                process = subprocess.Popen(
-                    ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
-                    stdout=PIPE, stderr=PIPE, universal_newlines=True
-                )
-            else:
-                self.progress_signal.emit(f"Updating {self.program_name}...")
-                # Fetch only the latest changes
-                process = subprocess.Popen(
-                    ['git', '-C', self.program_directory, 'pull', '--depth', '1', '--no-tags'],
-                    stdout=PIPE, stderr=PIPE, universal_newlines=True
-                )
-
-            while True:
-                output = process.stderr.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    self.progress_signal.emit(output.strip())
-
-            if process.returncode == 0:
-                self.progress_signal.emit(f"{self.program_name} update completed successfully.")
-            else:
-                self.progress_signal.emit(f"Error updating {self.program_name}.")
-
-        except Exception as e:
-            self.progress_signal.emit(f"Error: {str(e)}")
-        finally:
-            self.finished_signal.emit()
-
 class ProgramUpdater(QWidget):
+    def __init__(self):
+        super().__init__()
     light_style = '''
         QWidget {
             background-color: #eee;
@@ -199,7 +156,7 @@ class ProgramUpdater(QWidget):
             border: 2px solid #3385ff;  /* Lighter blue border on hover */
         }
     '''
-
+ 
     def __init__(self):
         super().__init__()
         self.base_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium')
@@ -208,42 +165,37 @@ class ProgramUpdater(QWidget):
 
         self.desktop_icon_url = "https://raw.githubusercontent.com/Protechas/Elysium/main/ELYSIUM_icon.ico"
         self.desktop_icon_path = self.download_icon(self.desktop_icon_url)
-        
-        self.active_threads = []
-        self.completed_updates = 0
-        self.total_updates = 0
 
         self.programs = {
             "DFR": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/DFR/main/DFR.ico", 
-                "script": "DFR.py",
-                "repo_url": "https://github.com/Protechas/DFR.git"
+                "script": "DFR.py"
             },
             "SI MultiTool": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-MultiTool/main/SI-Multitool.ico", 
-                "script": "SI Multitool.py",
-                "repo_url": "https://github.com/Protechas/SI-MultiTool.git"
+                "script": "SI Multitool.py"
             },
-            "Hyper": {
+            "Hyper": {  # Add your program here
                 "icon_url": "https://raw.githubusercontent.com/Protechas/Hyper/master/Hyper.ico",
-                "script": "Hyper.py",
-                "repo_url": "https://github.com/Protechas/Hyper.git"
+                "script": "Hyper.py"
             },
             "Analyzer+": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
-                "script": "Analyzer+.py",
-                "repo_url": "https://github.com/Protechas/AnalyzerPlus"
+                "script": "Analyzer+.py"
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
                 "script": "run.py",
-                "repo_name": "SI Opportunity Manager",
-                "repo_url": "https://github.com/Protechas/SI-Opportunity-Manager"
+                "repo_name": "SI Opportunity Manager"
             }
         }
 
         self.init_ui()
-        self.update_all_programs()
+        self.update_program_direct("DFR", "https://github.com/Protechas/DFR.git")
+        self.update_program_direct("SI MultiTool", "https://github.com/Protechas/SI-MultiTool.git")
+        self.update_program_direct("Hyper", "https://github.com/Protechas/Hyper.git")
+        self.update_program_direct("Analyzer+", "https://github.com/Protechas/AnalyzerPlus")
+        self.update_program_direct("SI Op Manager", "https://github.com/Protechas/SI-Opportunity-Manager")
         self.setStyleSheet(self.dark_style)
 
     def init_ui(self):
@@ -284,29 +236,6 @@ class ProgramUpdater(QWidget):
 
         layout.addLayout(grid_layout)
 
-        # Add progress bar and status label at the bottom
-        self.status_label = QLabel('')
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet('color: #008080; font-size: 12px;')
-        layout.addWidget(self.status_label)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet('''
-            QProgressBar {
-                border: 2px solid #008080;
-                border-radius: 5px;
-                text-align: center;
-                height: 10px;
-            }
-            QProgressBar::chunk {
-                background-color: #008080;
-            }
-        ''')
-        self.progress_bar.hide()
-        layout.addWidget(self.progress_bar)
-
-        # Add dark mode toggle button
         self.dark_mode_toggle_button = QPushButton("Light Mode", self)
         self.dark_mode_toggle_button.clicked.connect(self.toggle_dark_mode)
         self.dark_mode_toggle_button.setFixedSize(100, 40)
@@ -362,52 +291,41 @@ class ProgramUpdater(QWidget):
     def update_program_direct(self, program_name, git_repo_url):
         try:
             base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+            # Use repo_name if it exists, otherwise use program_name
             folder_name = self.programs[program_name].get('repo_name', program_name)
             program_directory = os.path.join(base_directory, folder_name)
 
-            # Create and start the update thread
-            update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
-            update_thread.progress_signal.connect(self.update_status)
-            update_thread.finished_signal.connect(lambda: self.thread_finished(program_name))
-            
-            self.active_threads.append(update_thread)
-            update_thread.start()
-
-        except Exception as e:
-            self.update_status(f"Error updating {program_name}: {str(e)}")
-
-    def thread_finished(self, program_name):
-        self.completed_updates += 1
-        self.progress_bar.setValue(int((self.completed_updates / self.total_updates) * 100))
-        
-        if self.completed_updates == self.total_updates:
-            self.progress_bar.hide()
-            self.status_label.setText("All updates completed!")
-            self.active_threads.clear()
-            self.completed_updates = 0
-
-    def update_status(self, message):
-        self.status_label.setText(message)
-
-    def update_all_programs(self):
-        self.completed_updates = 0
-        self.total_updates = len(self.programs)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.show()
-        
-        for program_name, info in self.programs.items():
-            self.update_program_direct(program_name, info["repo_url"])
+            # Check if the directory exists and has files in it (i.e., is not empty)
+            if not os.path.exists(program_directory) or not os.listdir(program_directory):
+                print(f"Cloning {program_name} from {git_repo_url}...")
+                subprocess.check_call(['git', 'clone', git_repo_url, program_directory])
+                print(f"{program_name} cloned successfully.")
+            else:
+                print(f"Existing installation of {program_name} found. Updating...")
+                subprocess.check_call(['git', '-C', program_directory, 'fetch', '--all'])
+                subprocess.check_call(['git', '-C', program_directory, 'reset', '--hard', 'origin/master'])
+                print(f"{program_name} updated successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error updating {program_name}: {e}")
+ 
+    def download_file(self, url, local_filename):
+        try:
+            with requests.get(url, stream=True) as r:
+                with open(local_filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+        except requests.RequestException as e:
+            print(f"Error downloading file from {url}: {e}")
 
     def update_and_launch_program(self):
         if self.selected_program:
             try:
                 program_info = self.programs[self.selected_program]
+                git_repo_url = "https://github.com/placeholder/repo.git"  # Placeholder URL
                 program_name = self.selected_program
                 script_name = program_info["script"]
-                
-                # Update the program before launching using the actual repo URL
-                self.update_program_direct(program_name, program_info["repo_url"])
+                # Update the program before launching
+                self.update_program_direct(program_name, git_repo_url)
 
                 # Get the installation directory
                 installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', program_name)
