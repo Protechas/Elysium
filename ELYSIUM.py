@@ -236,7 +236,7 @@ class ProgramUpdater(QWidget):
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
-                "script": "main.py",
+                "script": "run.py",
                 "repo_name": "SI Opportunity Manager",
                 "repo_url": "https://github.com/Protechas/SI-Opportunity-Manager"
             }
@@ -405,23 +405,48 @@ class ProgramUpdater(QWidget):
                 program_info = self.programs[self.selected_program]
                 program_name = self.selected_program
                 script_name = program_info["script"]
-                
-                # Update the program before launching using the actual repo URL
-                self.update_program_direct(program_name, program_info["repo_url"])
+                folder_name = program_info.get('repo_name', program_name)
+                git_repo_url = program_info.get('repo_url', '')
 
-                # Get the installation directory
-                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', program_name)
+                # Update the program before launching
+                if git_repo_url:
+                    self.update_program_direct(program_name, git_repo_url)
+
+                # Get the installation directory using the correct folder name
+                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
 
                 # Launch the program
                 program_path = os.path.join(installation_directory, script_name)
-                launch_command = ['python', program_path]
+                
+                if not os.path.exists(program_path):
+                    raise FileNotFoundError(f"Could not find {script_name} in {installation_directory}")
 
                 # Pass the dark mode style sheet to the launched program
                 launch_env = os.environ.copy()
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
+                launch_env['PYTHONPATH'] = installation_directory
 
-                # Modify the subprocess.Popen call to suppress the command prompt window
-                subprocess.Popen(launch_command, env=launch_env, creationflags=subprocess.CREATE_NO_WINDOW)
+                # Special handling for SI Op Manager
+                if program_name == "SI Op Manager":
+                    pythonw_path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = subprocess.SW_HIDE
+
+                    subprocess.Popen(
+                        [pythonw_path, program_path],
+                        env=launch_env,
+                        cwd=installation_directory,
+                        startupinfo=startupinfo,
+                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+                    )
+                else:
+                    # Original launch method for all other programs
+                    subprocess.Popen(
+                        ['python', program_path],
+                        env=launch_env,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
 
