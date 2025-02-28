@@ -169,30 +169,30 @@ class ProgramUpdater(QWidget):
         self.programs = {
             "DFR": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/DFR/main/DFR.ico", 
-                "script": "DFR.py"
+                "script": "DFR.py",
+                "repo_url": "https://github.com/Protechas/DFR.git"
             },
             "SI MultiTool": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-MultiTool/main/SI-Multitool.ico", 
-                "script": "SI Multitool.py"
+                "script": "SI Multitool.py",
+                "repo_url": "https://github.com/Protechas/SI-MultiTool.git"
             },
-            "Hyper": {  # Add your program here
+            "Hyper": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/Hyper/master/Hyper.ico",
-                "script": "Hyper.py"
+                "script": "Hyper.py",
+                "repo_url": "https://github.com/Protechas/Hyper.git"
             },
             "Analyzer+": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
-                "script": "Analyzer+.py"
-            },
-            "SI Op Manager": {
-                "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
-                "script": "run.py",
-                "repo_name": "SI Opportunity Manager"
+                "script": "Analyzer+.py",
+                "repo_url": "https://github.com/Protechas/AnalyzerPlus"
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
                 "script": "main.py",
                 "repo_name": "SI Opportunity Manager",
-                "repo_url": "https://github.com/Protechas/SI-Opportunity-Manager"
+                "repo_url": "https://github.com/Protechas/SI-Opportunity-Manager",
+                "main_dir": "app"  # Add this to specify the directory containing main.py
             }
         }
 
@@ -327,30 +327,60 @@ class ProgramUpdater(QWidget):
         if self.selected_program:
             try:
                 program_info = self.programs[self.selected_program]
-                git_repo_url = "https://github.com/placeholder/repo.git"  # Placeholder URL
                 program_name = self.selected_program
                 script_name = program_info["script"]
+                git_repo_url = program_info["repo_url"]  # Use the actual repo URL from the config
+                folder_name = program_info.get('repo_name', program_name)
+                
                 # Update the program before launching
                 self.update_program_direct(program_name, git_repo_url)
 
                 # Get the installation directory
-                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', program_name)
+                base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
+                
+                # Handle programs with a specific main directory
+                if 'main_dir' in program_info:
+                    installation_directory = os.path.join(base_directory, program_info['main_dir'])
+                else:
+                    installation_directory = base_directory
 
                 # Launch the program
                 program_path = os.path.join(installation_directory, script_name)
-                launch_command = ['python', program_path]
+                
+                # Verify the script exists
+                if not os.path.exists(program_path):
+                    raise FileNotFoundError(f"Script not found at {program_path}")
 
                 # Pass the dark mode style sheet to the launched program
                 launch_env = os.environ.copy()
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
+                launch_env['PYTHONPATH'] = base_directory  # Set PYTHONPATH to the root directory
+
+                # Launch the program
+                launch_command = [sys.executable, program_path]  # Use sys.executable for consistent Python version
 
                 # Modify the subprocess.Popen call to suppress the command prompt window
-                subprocess.Popen(launch_command, env=launch_env, creationflags=subprocess.CREATE_NO_WINDOW)
+                process = subprocess.Popen(
+                    launch_command,
+                    env=launch_env,
+                    cwd=installation_directory,  # Set working directory to where the script is
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+
+                # Check for immediate startup errors
+                error_output = process.stderr.readline()
+                if error_output:
+                    raise RuntimeError(f"Program startup error: {error_output}")
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
 
+            except FileNotFoundError as e:
+                QMessageBox.critical(self, 'Error', str(e))
             except Exception as e:
-                QMessageBox.warning(self, 'Error', f"Error updating or launching {program_name}: {e}")
+                QMessageBox.critical(self, 'Error', f"Error with {program_name}: {str(e)}")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
