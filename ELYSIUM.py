@@ -325,7 +325,7 @@ class ProgramUpdater(QWidget):
                 program_name = self.selected_program
                 script_name = program_info["script"]
                 folder_name = program_info.get('repo_name', program_name)
-                git_repo_url = program_info.get('repo_url', '')  # Get the actual repo URL
+                git_repo_url = program_info.get('repo_url', '')
 
                 # Update the program before launching
                 if git_repo_url:
@@ -345,21 +345,41 @@ class ProgramUpdater(QWidget):
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
                 launch_env['PYTHONPATH'] = installation_directory
 
-                # Use pythonw.exe instead of python.exe to hide the console window
+                # Create a launcher script that will properly initialize and run the program
+                launcher_script = f'''
+import os
+import sys
+import runpy
+os.chdir(r"{installation_directory}")
+sys.path.insert(0, r"{installation_directory}")
+runpy.run_path(r"{program_path}", run_name="__main__")
+'''
+                launcher_path = os.path.join(installation_directory, "_temp_launcher.py")
+                with open(launcher_path, 'w') as f:
+                    f.write(launcher_script)
+
+                # Use pythonw.exe to hide the console window
                 pythonw_path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
                 
-                # Modify the subprocess.Popen call to completely hide the window
+                # Create startupinfo to hide the window
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = subprocess.SW_HIDE
 
-                subprocess.Popen(
-                    [pythonw_path, program_path],
+                # Launch the program using the launcher script
+                process = subprocess.Popen(
+                    [pythonw_path, launcher_path],
                     env=launch_env,
                     cwd=installation_directory,
                     startupinfo=startupinfo,
                     creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
                 )
+
+                # Clean up the temporary launcher script
+                try:
+                    os.remove(launcher_path)
+                except:
+                    pass  # Ignore cleanup errors
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name}...")
 
