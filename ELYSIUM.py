@@ -334,10 +334,6 @@ class ProgramUpdater(QWidget):
                 # Get the installation directory using the correct folder name
                 installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
 
-                # For SI Op Manager, we need to navigate to the app directory
-                if program_name == "SI Op Manager":
-                    installation_directory = os.path.join(installation_directory, 'app')
-
                 # Launch the program
                 program_path = os.path.join(installation_directory, script_name)
                 
@@ -347,7 +343,7 @@ class ProgramUpdater(QWidget):
                 # Pass the dark mode style sheet to the launched program
                 launch_env = os.environ.copy()
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
-                launch_env['PYTHONPATH'] = os.path.dirname(installation_directory)
+                launch_env['PYTHONPATH'] = installation_directory
 
                 # Modify the subprocess.Popen call to suppress the command prompt window
                 subprocess.Popen(
