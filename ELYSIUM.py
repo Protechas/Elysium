@@ -428,17 +428,17 @@ class ProgramUpdater(QWidget):
 
                 # Special handling for SI Op Manager
                 if program_name == "SI Op Manager":
-                    pythonw_path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+                    python_path = sys.executable  # Use the same Python that's running ELYSIUM
                     startupinfo = subprocess.STARTUPINFO()
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                     startupinfo.wShowWindow = subprocess.SW_HIDE
 
                     subprocess.Popen(
-                        [pythonw_path, program_path],
+                        [python_path, program_path],
                         env=launch_env,
                         cwd=installation_directory,
                         startupinfo=startupinfo,
-                        creationflags=subprocess.DETACHED_PROCESS
+                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS | subprocess.SW_HIDE
                     )
                 else:
                     # Original launch method for all other programs
