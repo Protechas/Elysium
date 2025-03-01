@@ -236,8 +236,8 @@ class ProgramUpdater(QWidget):
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
-                "script": "main.py",
-                "repo_name": "SI-Opportunity-Manager---Current-State-02-2025",
+                "script": "run.py",
+                "repo_name": "SI Opportunity Manager",
                 "repo_url": "https://github.com/Zmang24/SI-Opportunity-Manager---Current-State-02-2025"
             }
         }
@@ -428,11 +428,17 @@ class ProgramUpdater(QWidget):
 
                 # Special handling for SI Op Manager
                 if program_name == "SI Op Manager":
-                    pythonw_path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+                    python_path = sys.executable  # Use the same Python that's running ELYSIUM
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = subprocess.SW_HIDE
+
                     subprocess.Popen(
-                        [pythonw_path, program_path],
+                        [python_path, program_path],
                         env=launch_env,
-                        cwd=installation_directory
+                        cwd=installation_directory,
+                        startupinfo=startupinfo,
+                        creationflags=subprocess.CREATE_NO_WINDOW
                     )
                 else:
                     # Original launch method for all other programs
