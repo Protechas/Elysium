@@ -433,12 +433,16 @@ class ProgramUpdater(QWidget):
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                     startupinfo.wShowWindow = subprocess.SW_HIDE
 
+                    # Format the command properly for shell execution
+                    cmd = f'"{python_path}" "{program_path}"'
+                    
                     subprocess.Popen(
-                        [python_path, program_path],
+                        cmd,
                         env=launch_env,
                         cwd=installation_directory,
                         startupinfo=startupinfo,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        shell=True
                     )
                 else:
                     # Original launch method for all other programs
