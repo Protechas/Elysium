@@ -11,22 +11,6 @@ import openpyxl
 import win32com.client
 import re
 
-def install_required_packages():
-    required_packages = [
-        "PyQt5", "requests", "openpyxl", "pywin32", "pandas", "numpy", "PyMuPDF", 
-        "PyPDF2", "cx-Freeze", "aiohttp", "customtkinter", "pandastable", 
-        "pysimplegui", "PyQtWebEngine", "pytz", "sqlalchemy", "psycopg2-binary", 
-        "python-dotenv", "PyJWT", "bcrypt", "python-dateutil", "pillow", 
-        "win10toast", "fastapi", "uvicorn", "websockets", "supabase"
-    ]
-    
-    for package in required_packages:
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package, "--quiet"])
-        except subprocess.CalledProcessError:
-            print(f"Failed to install {package}")
-            continue
-
 def download_icon(url):
     try:
         filename = url.split('/')[-1]  # Extracts file name from URL
@@ -252,13 +236,14 @@ class ProgramUpdater(QWidget):
             },
             "SI Op Manager": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
-                "script": "main.py",
-                "repo_name": "SI-Opportunity-Manager---Current-State-02-2025",
+                "script": "run.py",
+                "repo_name": "SI Opportunity Manager",
                 "repo_url": "https://github.com/Zmang24/SI-Opportunity-Manager---Current-State-02-2025"
             }
         }
 
         self.init_ui()
+        self.install_required_packages()  # Install packages before updating programs
         self.update_all_programs()
         self.setStyleSheet(self.dark_style)
 
@@ -343,18 +328,6 @@ class ProgramUpdater(QWidget):
         layout.addWidget(self.dark_mode_toggle_button)
 
         self.setLayout(layout)
-
-    def download_icon(self, url):
-        try:
-            local_filename = os.path.join(self.base_dir, os.path.basename(url))
-            response = requests.get(url)
-            response.raise_for_status()
-            with open(local_filename, 'wb') as f:
-                f.write(response.content)
-            return local_filename
-        except requests.RequestException as e:
-            print(f"Failed to download icon: {e}")
-            return None
 
     def program_clicked(self, program_name):
         QMessageBox.information(self, "Program Selected", f"You selected {program_name}")
@@ -465,10 +438,33 @@ class ProgramUpdater(QWidget):
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
+    def install_required_packages(self):
+        required_packages = [
+            "PyQt5", "requests", "openpyxl", "pywin32", "pandas", "numpy", "PyMuPDF", 
+            "PyPDF2", "cx-Freeze", "aiohttp", "customtkinter", "pandastable", 
+            "pysimplegui", "PyQtWebEngine", "pytz", "sqlalchemy", "psycopg2-binary", 
+            "python-dotenv", "PyJWT", "bcrypt", "python-dateutil", "pillow", 
+            "win10toast", "fastapi", "uvicorn", "websockets", "supabase"
+        ]
+        
+        total_packages = len(required_packages)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.show()
+        
+        for i, package in enumerate(required_packages):
+            try:
+                self.status_label.setText(f"Installing {package}...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", package, "--quiet"])
+                progress = int(((i + 1) / total_packages) * 100)
+                self.progress_bar.setValue(progress)
+            except subprocess.CalledProcessError:
+                self.status_label.setText(f"Failed to install {package}")
+                continue
+        
+        self.status_label.setText("Package installation completed.")
+
 def main():
-    # Install required packages at startup
-    install_required_packages()
-    
     app = QApplication(sys.argv)
     updater = ProgramUpdater()
     
