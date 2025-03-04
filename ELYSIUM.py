@@ -11,6 +11,22 @@ import openpyxl
 import win32com.client
 import re
 
+def install_required_packages():
+    required_packages = [
+        "PyQt5", "requests", "openpyxl", "pywin32", "pandas", "numpy", "PyMuPDF", 
+        "PyPDF2", "cx-Freeze", "aiohttp", "customtkinter", "pandastable", 
+        "pysimplegui", "PyQtWebEngine", "pytz", "sqlalchemy", "psycopg2-binary", 
+        "python-dotenv", "PyJWT", "bcrypt", "python-dateutil", "pillow", 
+        "win10toast", "fastapi", "uvicorn", "websockets", "supabase"
+    ]
+    
+    for package in required_packages:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package, "--quiet"])
+        except subprocess.CalledProcessError:
+            print(f"Failed to install {package}")
+            continue
+
 def download_icon(url):
     try:
         filename = url.split('/')[-1]  # Extracts file name from URL
@@ -450,8 +466,11 @@ class ProgramUpdater(QWidget):
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
 def main():
+    # Install required packages at startup
+    install_required_packages()
+    
     app = QApplication(sys.argv)
-    updater = ProgramUpdater()  # Assuming ProgramUpdater is a QWidget or similar
+    updater = ProgramUpdater()
     
     # Get the screen geometry to calculate the center position
     screen_geometry = app.primaryScreen().geometry()
