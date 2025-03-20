@@ -971,6 +971,14 @@ class ProgramUpdater(QWidget):
             folder_name = self.programs[program_name].get('repo_name', program_name)
             program_directory = os.path.join(base_directory, folder_name)
 
+            # Check if the program is currently running
+            if os.path.exists(program_directory) and is_program_running(program_directory):
+                logger.info(f"Skipping update for {program_name} as it is currently running")
+                self.update_status(f"Skipping {program_name} (currently running)")
+                # Mark this update as completed even though we skipped it
+                self.thread_finished(program_name)
+                return
+
             # Create and start the update thread
             update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
             update_thread.progress_signal.connect(self.update_status)
@@ -1503,6 +1511,23 @@ def get_user_first_name():
     # Final fallback
     logger.warning("Could not determine user name, using default")
     return "User"
+
+def is_program_running(program_directory):
+    """Check if a program in the given directory is currently running by attempting a write operation."""
+    try:
+        # Try to open a temporary file in the directory
+        test_file = os.path.join(program_directory, '.update_test')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        return False
+    except (IOError, PermissionError):
+        # If we get a permission error, the program is likely running
+        return True
+    except Exception as e:
+        # For any other error, log it but assume program is not running
+        logger.warning(f"Error checking if program is running: {str(e)}")
+        return False
 
 def main():
     # First, set up basic logging to console (in case file logging fails due to missing dependencies)
