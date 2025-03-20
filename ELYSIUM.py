@@ -977,20 +977,37 @@ class ProgramUpdater(QWidget):
                 logger.info(f"First time installation for {program_name}")
                 pass
             else:
-                # Check if the program is currently running with retries
-                retries = 3
-                for attempt in range(retries):
-                    if is_program_running(program_directory):
-                        if attempt < retries - 1:
-                            logger.info(f"Program {program_name} appears to be running, retry {attempt + 1}/{retries}")
-                            time.sleep(1)  # Wait a bit before retrying
-                            continue
-                        else:
-                            logger.info(f"Skipping update for {program_name} as it is currently running (after {retries} retries)")
-                            self.update_status(f"Skipping {program_name} (currently running)")
-                            self.thread_finished(program_name)
-                            return
-                    break
+                # Special handling for SI Op Manager
+                if program_name == "SI Op Manager":
+                    # More aggressive retries and longer waits for SI Op Manager
+                    retries = 5
+                    for attempt in range(retries):
+                        if is_program_running(program_directory):
+                            if attempt < retries - 1:
+                                logger.info(f"SI Op Manager appears to be running, retry {attempt + 1}/{retries}")
+                                time.sleep(2)  # Longer wait for SI Op Manager
+                                continue
+                            else:
+                                logger.info(f"Skipping update for SI Op Manager as it is currently running (after {retries} retries)")
+                                self.update_status("Skipping SI Op Manager (currently running)")
+                                self.thread_finished(program_name)
+                                return
+                        break
+                else:
+                    # Standard handling for other programs
+                    retries = 3
+                    for attempt in range(retries):
+                        if is_program_running(program_directory):
+                            if attempt < retries - 1:
+                                logger.info(f"Program {program_name} appears to be running, retry {attempt + 1}/{retries}")
+                                time.sleep(1)  # Standard wait for other programs
+                                continue
+                            else:
+                                logger.info(f"Skipping update for {program_name} as it is currently running (after {retries} retries)")
+                                self.update_status(f"Skipping {program_name} (currently running)")
+                                self.thread_finished(program_name)
+                                return
+                        break
 
             try:
                 # Create and start the update thread
@@ -1539,6 +1556,37 @@ def get_user_first_name():
 def is_program_running(program_directory):
     """Check if a program in the given directory is currently running by checking file locks."""
     try:
+        # Special handling for SI Op Manager
+        if "SI-Opportunity-Manager" in program_directory:
+            # Check for SI Op Manager's specific lock files and processes
+            lock_files = ['main.py.lock', '.git/index.lock', 'db.lock']
+            for lock_file in lock_files:
+                lock_path = os.path.join(program_directory, lock_file)
+                if os.path.exists(lock_path):
+                    try:
+                        # Try to open the lock file for writing
+                        with open(lock_path, 'a') as f:
+                            pass
+                    except (IOError, PermissionError):
+                        logger.info(f"SI Op Manager appears to be running (lock file {lock_file} is locked)")
+                        return True
+            
+            # Try to create a test file in a non-critical directory
+            test_dir = os.path.join(program_directory, 'temp')
+            os.makedirs(test_dir, exist_ok=True)
+            test_file = os.path.join(test_dir, '.lock_test')
+            try:
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
+                os.rmdir(test_dir)
+            except (IOError, PermissionError):
+                logger.info(f"SI Op Manager appears to be running (file creation test failed)")
+                return True
+            
+            return False
+
+        # Standard handling for other programs
         # First try: Check if we can create a temporary file in the directory
         test_file = os.path.join(program_directory, '.lock_test')
         try:
