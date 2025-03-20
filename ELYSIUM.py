@@ -964,7 +964,6 @@ class ProgramUpdater(QWidget):
         try:
             # Check if Git is installed before attempting to update
             if not is_git_installed():
-                logger.warning(f"Cannot update {program_name}: Git is not installed")
                 self.update_status(f"Cannot update {program_name}: Git is not installed")
                 self.thread_finished(program_name)
                 return
@@ -975,7 +974,6 @@ class ProgramUpdater(QWidget):
 
             # Skip if directory doesn't exist yet (first time installation)
             if not os.path.exists(program_directory):
-                logger.info(f"First time installation for {program_name}")
                 pass
             else:
                 # Special handling for SI Op Manager
@@ -985,12 +983,10 @@ class ProgramUpdater(QWidget):
                     for attempt in range(retries):
                         if is_program_running(program_directory):
                             if attempt < retries - 1:
-                                logger.info(f"SI Op Manager appears to be running, retry {attempt + 1}/{retries}")
                                 self.update_status(f"SI Op Manager is running, waiting before retry ({attempt + 1}/{retries})...")
                                 time.sleep(2)  # Longer wait for SI Op Manager
                                 continue
                             else:
-                                logger.info("Skipping update for SI Op Manager as it is currently running")
                                 self.update_status("SI Op Manager is currently running - please close it and try again")
                                 QMessageBox.warning(self, 'Update Skipped', 
                                                  'SI Op Manager is currently running.\n\n'
@@ -1006,11 +1002,9 @@ class ProgramUpdater(QWidget):
                     for attempt in range(retries):
                         if is_program_running(program_directory):
                             if attempt < retries - 1:
-                                logger.info(f"Program {program_name} appears to be running, retry {attempt + 1}/{retries}")
                                 time.sleep(1)  # Standard wait for other programs
                                 continue
                             else:
-                                logger.info(f"Skipping update for {program_name} as it is currently running")
                                 self.update_status(f"Skipping {program_name} (currently running)")
                                 self.thread_finished(program_name)
                                 return
@@ -1024,11 +1018,9 @@ class ProgramUpdater(QWidget):
                 
                 self.active_threads.append(update_thread)
                 update_thread.start()
-                logger.info(f"Started update thread for {program_name}")
             except (OSError, PermissionError) as e:
                 # If we get a permission error during thread creation/start, handle it gracefully
                 error_msg = f"Cannot update {program_name} - program is in use"
-                logger.warning(f"{error_msg}: {str(e)}")
                 self.update_status(error_msg)
                 if program_name == "SI Op Manager":
                     QMessageBox.warning(self, 'Update Failed', 
@@ -1040,10 +1032,7 @@ class ProgramUpdater(QWidget):
                 return
 
         except Exception as e:
-            error_msg = f"Error updating {program_name}: {str(e)}"
-            self.update_status(error_msg)
-            logger.error(error_msg, exc_info=True)
-            # Ensure we mark the update as completed even if there's an error
+            self.update_status(f"Error updating {program_name}")
             self.thread_finished(program_name)
 
     def thread_finished(self, program_name):
@@ -1571,84 +1560,59 @@ def is_program_running(program_directory):
     try:
         # Special handling for SI Op Manager
         if "SI-Opportunity-Manager" in program_directory:
-            logger.info("Checking if SI Op Manager is running...")
-            
-            # First check: Try to access the main script file
-            main_script = os.path.join(program_directory, 'main.py')
-            if os.path.exists(main_script):
-                try:
-                    with open(main_script, 'r+') as f:
-                        # Try to get an exclusive lock on the file
-                        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-                        # Release the lock immediately
-                        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-                except (IOError, PermissionError):
-                    logger.info("SI Op Manager appears to be running (main script is locked)")
-                    return True
-            
-            # Second check: Check for process-specific lock files
-            lock_files = ['main.py.lock', '.git/index.lock', 'db.lock', 'program.lock']
-            for lock_file in lock_files:
-                lock_path = os.path.join(program_directory, lock_file)
-                if os.path.exists(lock_path):
-                    try:
-                        # Try to open the lock file for writing
-                        with open(lock_path, 'a') as f:
-                            pass
-                    except (IOError, PermissionError):
-                        logger.info(f"SI Op Manager appears to be running (lock file {lock_file} is locked)")
-                        return True
-            
-            # Third check: Try to rename the directory
             try:
+                # First check: Try to access the main script file
+                main_script = os.path.join(program_directory, 'main.py')
+                if os.path.exists(main_script):
+                    try:
+                        with open(main_script, 'r+') as f:
+                            # Try to get an exclusive lock on the file
+                            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                            # Release the lock immediately
+                            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                    except (IOError, PermissionError):
+                        return True
+                
+                # Second check: Try to rename the directory
                 temp_name = program_directory + '_temp'
+                try:
+                    os.rename(program_directory, temp_name)
+                    os.rename(temp_name, program_directory)
+                except (OSError, PermissionError):
+                    return True
+                
+                return False
+            except Exception:
+                # If any error occurs during checks, assume program is running
+                return True
+
+        # Standard handling for other programs
+        try:
+            # First try: Check if we can create a temporary file in the directory
+            test_file = os.path.join(program_directory, '.lock_test')
+            try:
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
+            except (IOError, PermissionError):
+                return True
+
+            # Second try: Check if we can rename the directory
+            temp_name = program_directory + '_temp'
+            try:
                 os.rename(program_directory, temp_name)
                 os.rename(temp_name, program_directory)
             except (OSError, PermissionError):
-                logger.info("SI Op Manager appears to be running (directory is locked)")
                 return True
-            
-            logger.info("SI Op Manager does not appear to be running")
+
             return False
-
-        # Standard handling for other programs
-        # First try: Check if we can create a temporary file in the directory
-        test_file = os.path.join(program_directory, '.lock_test')
-        try:
-            with open(test_file, 'w') as f:
-                f.write('test')
-            os.remove(test_file)
-        except (IOError, PermissionError):
-            logger.info(f"Program appears to be running (file creation test failed in {program_directory})")
+        except Exception:
+            # If any error occurs during checks, assume program is running
             return True
 
-        # Second try: Check if we can rename the directory
-        temp_name = program_directory + '_temp'
-        try:
-            os.rename(program_directory, temp_name)
-            os.rename(temp_name, program_directory)
-        except (OSError, PermissionError):
-            logger.info(f"Program appears to be running (directory rename test failed in {program_directory})")
-            return True
-
-        # Third try: Check for common lock files
-        lock_files = ['.git/index.lock', '.lock', 'program.lock']
-        for lock_file in lock_files:
-            if os.path.exists(os.path.join(program_directory, lock_file)):
-                try:
-                    # Try to open the lock file for writing
-                    with open(os.path.join(program_directory, lock_file), 'a') as f:
-                        pass
-                except (IOError, PermissionError):
-                    logger.info(f"Program appears to be running (lock file {lock_file} is locked)")
-                    return True
-
-        logger.info(f"No locks detected in {program_directory}")
-        return False
-    except Exception as e:
-        # Log any unexpected errors but don't assume the program is running
-        logger.warning(f"Error checking if program is running in {program_directory}: {str(e)}")
-        return False
+    except Exception:
+        # If we can't even check properly, assume program is running to be safe
+        return True
 
 def main():
     # First, set up basic logging to console (in case file logging fails due to missing dependencies)
