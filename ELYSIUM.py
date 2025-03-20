@@ -965,6 +965,7 @@ class ProgramUpdater(QWidget):
             if not is_git_installed():
                 logger.warning(f"Cannot update {program_name}: Git is not installed")
                 self.update_status(f"Cannot update {program_name}: Git is not installed")
+                self.thread_finished(program_name)
                 return
             
             base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
@@ -973,14 +974,23 @@ class ProgramUpdater(QWidget):
 
             # Skip if directory doesn't exist yet (first time installation)
             if not os.path.exists(program_directory):
+                logger.info(f"First time installation for {program_name}")
                 pass
-            # Check if the program is currently running
-            elif is_program_running(program_directory):
-                logger.info(f"Skipping update for {program_name} as it is currently running")
-                self.update_status(f"Skipping {program_name} (currently running)")
-                # Mark this update as completed even though we skipped it
-                self.thread_finished(program_name)
-                return
+            else:
+                # Check if the program is currently running with retries
+                retries = 3
+                for attempt in range(retries):
+                    if is_program_running(program_directory):
+                        if attempt < retries - 1:
+                            logger.info(f"Program {program_name} appears to be running, retry {attempt + 1}/{retries}")
+                            time.sleep(1)  # Wait a bit before retrying
+                            continue
+                        else:
+                            logger.info(f"Skipping update for {program_name} as it is currently running (after {retries} retries)")
+                            self.update_status(f"Skipping {program_name} (currently running)")
+                            self.thread_finished(program_name)
+                            return
+                    break
 
             try:
                 # Create and start the update thread
@@ -990,9 +1000,11 @@ class ProgramUpdater(QWidget):
                 
                 self.active_threads.append(update_thread)
                 update_thread.start()
+                logger.info(f"Started update thread for {program_name}")
             except (OSError, PermissionError) as e:
                 # If we get a permission error during thread creation/start, handle it gracefully
-                logger.warning(f"Cannot update {program_name} due to file access restrictions: {str(e)}")
+                error_msg = f"Cannot update {program_name} due to file access restrictions: {str(e)}"
+                logger.warning(error_msg)
                 self.update_status(f"Skipping {program_name} (access restricted)")
                 self.thread_finished(program_name)
                 return
@@ -1527,17 +1539,42 @@ def get_user_first_name():
 def is_program_running(program_directory):
     """Check if a program in the given directory is currently running by checking file locks."""
     try:
-        # Try to rename the directory to itself - this will fail if any files are locked
+        # First try: Check if we can create a temporary file in the directory
+        test_file = os.path.join(program_directory, '.lock_test')
+        try:
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+        except (IOError, PermissionError):
+            logger.info(f"Program appears to be running (file creation test failed in {program_directory})")
+            return True
+
+        # Second try: Check if we can rename the directory
         temp_name = program_directory + '_temp'
-        os.rename(program_directory, temp_name)
-        os.rename(temp_name, program_directory)
+        try:
+            os.rename(program_directory, temp_name)
+            os.rename(temp_name, program_directory)
+        except (OSError, PermissionError):
+            logger.info(f"Program appears to be running (directory rename test failed in {program_directory})")
+            return True
+
+        # Third try: Check for common lock files
+        lock_files = ['.git/index.lock', '.lock', 'program.lock']
+        for lock_file in lock_files:
+            if os.path.exists(os.path.join(program_directory, lock_file)):
+                try:
+                    # Try to open the lock file for writing
+                    with open(os.path.join(program_directory, lock_file), 'a') as f:
+                        pass
+                except (IOError, PermissionError):
+                    logger.info(f"Program appears to be running (lock file {lock_file} is locked)")
+                    return True
+
+        logger.info(f"No locks detected in {program_directory}")
         return False
-    except (OSError, PermissionError):
-        # If we get a permission error or OS error, the program is likely running
-        return True
     except Exception as e:
-        # For any other error, log it but assume program is not running
-        logger.warning(f"Error checking if program is running: {str(e)}")
+        # Log any unexpected errors but don't assume the program is running
+        logger.warning(f"Error checking if program is running in {program_directory}: {str(e)}")
         return False
 
 def main():
