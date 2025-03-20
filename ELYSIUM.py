@@ -971,26 +971,38 @@ class ProgramUpdater(QWidget):
             folder_name = self.programs[program_name].get('repo_name', program_name)
             program_directory = os.path.join(base_directory, folder_name)
 
+            # Skip if directory doesn't exist yet (first time installation)
+            if not os.path.exists(program_directory):
+                pass
             # Check if the program is currently running
-            if os.path.exists(program_directory) and is_program_running(program_directory):
+            elif is_program_running(program_directory):
                 logger.info(f"Skipping update for {program_name} as it is currently running")
                 self.update_status(f"Skipping {program_name} (currently running)")
                 # Mark this update as completed even though we skipped it
                 self.thread_finished(program_name)
                 return
 
-            # Create and start the update thread
-            update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
-            update_thread.progress_signal.connect(self.update_status)
-            update_thread.finished_signal.connect(lambda: self.thread_finished(program_name))
-            
-            self.active_threads.append(update_thread)
-            update_thread.start()
+            try:
+                # Create and start the update thread
+                update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
+                update_thread.progress_signal.connect(self.update_status)
+                update_thread.finished_signal.connect(lambda: self.thread_finished(program_name))
+                
+                self.active_threads.append(update_thread)
+                update_thread.start()
+            except (OSError, PermissionError) as e:
+                # If we get a permission error during thread creation/start, handle it gracefully
+                logger.warning(f"Cannot update {program_name} due to file access restrictions: {str(e)}")
+                self.update_status(f"Skipping {program_name} (access restricted)")
+                self.thread_finished(program_name)
+                return
 
         except Exception as e:
             error_msg = f"Error updating {program_name}: {str(e)}"
             self.update_status(error_msg)
             logger.error(error_msg, exc_info=True)
+            # Ensure we mark the update as completed even if there's an error
+            self.thread_finished(program_name)
 
     def thread_finished(self, program_name):
         self.completed_updates += 1
@@ -1513,16 +1525,15 @@ def get_user_first_name():
     return "User"
 
 def is_program_running(program_directory):
-    """Check if a program in the given directory is currently running by attempting a write operation."""
+    """Check if a program in the given directory is currently running by checking file locks."""
     try:
-        # Try to open a temporary file in the directory
-        test_file = os.path.join(program_directory, '.update_test')
-        with open(test_file, 'w') as f:
-            f.write('test')
-        os.remove(test_file)
+        # Try to rename the directory to itself - this will fail if any files are locked
+        temp_name = program_directory + '_temp'
+        os.rename(program_directory, temp_name)
+        os.rename(temp_name, program_directory)
         return False
-    except (IOError, PermissionError):
-        # If we get a permission error, the program is likely running
+    except (OSError, PermissionError):
+        # If we get a permission error or OS error, the program is likely running
         return True
     except Exception as e:
         # For any other error, log it but assume program is not running
