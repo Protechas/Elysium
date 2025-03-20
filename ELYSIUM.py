@@ -18,6 +18,7 @@ import shutil
 import tempfile
 import time
 import winreg
+import msvcrt
 
 # Set up basic logging first
 log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
@@ -985,11 +986,17 @@ class ProgramUpdater(QWidget):
                         if is_program_running(program_directory):
                             if attempt < retries - 1:
                                 logger.info(f"SI Op Manager appears to be running, retry {attempt + 1}/{retries}")
+                                self.update_status(f"SI Op Manager is running, waiting before retry ({attempt + 1}/{retries})...")
                                 time.sleep(2)  # Longer wait for SI Op Manager
                                 continue
                             else:
-                                logger.info(f"Skipping update for SI Op Manager as it is currently running (after {retries} retries)")
-                                self.update_status("Skipping SI Op Manager (currently running)")
+                                logger.info("Skipping update for SI Op Manager as it is currently running")
+                                self.update_status("SI Op Manager is currently running - please close it and try again")
+                                QMessageBox.warning(self, 'Update Skipped', 
+                                                 'SI Op Manager is currently running.\n\n'
+                                                 'To update:\n'
+                                                 '1. Close SI Op Manager\n'
+                                                 '2. Try updating again')
                                 self.thread_finished(program_name)
                                 return
                         break
@@ -1003,7 +1010,7 @@ class ProgramUpdater(QWidget):
                                 time.sleep(1)  # Standard wait for other programs
                                 continue
                             else:
-                                logger.info(f"Skipping update for {program_name} as it is currently running (after {retries} retries)")
+                                logger.info(f"Skipping update for {program_name} as it is currently running")
                                 self.update_status(f"Skipping {program_name} (currently running)")
                                 self.thread_finished(program_name)
                                 return
@@ -1020,9 +1027,15 @@ class ProgramUpdater(QWidget):
                 logger.info(f"Started update thread for {program_name}")
             except (OSError, PermissionError) as e:
                 # If we get a permission error during thread creation/start, handle it gracefully
-                error_msg = f"Cannot update {program_name} due to file access restrictions: {str(e)}"
-                logger.warning(error_msg)
-                self.update_status(f"Skipping {program_name} (access restricted)")
+                error_msg = f"Cannot update {program_name} - program is in use"
+                logger.warning(f"{error_msg}: {str(e)}")
+                self.update_status(error_msg)
+                if program_name == "SI Op Manager":
+                    QMessageBox.warning(self, 'Update Failed', 
+                                     'Cannot update SI Op Manager while it is running.\n\n'
+                                     'To update:\n'
+                                     '1. Close SI Op Manager\n'
+                                     '2. Try updating again')
                 self.thread_finished(program_name)
                 return
 
@@ -1558,8 +1571,23 @@ def is_program_running(program_directory):
     try:
         # Special handling for SI Op Manager
         if "SI-Opportunity-Manager" in program_directory:
-            # Check for SI Op Manager's specific lock files and processes
-            lock_files = ['main.py.lock', '.git/index.lock', 'db.lock']
+            logger.info("Checking if SI Op Manager is running...")
+            
+            # First check: Try to access the main script file
+            main_script = os.path.join(program_directory, 'main.py')
+            if os.path.exists(main_script):
+                try:
+                    with open(main_script, 'r+') as f:
+                        # Try to get an exclusive lock on the file
+                        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                        # Release the lock immediately
+                        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                except (IOError, PermissionError):
+                    logger.info("SI Op Manager appears to be running (main script is locked)")
+                    return True
+            
+            # Second check: Check for process-specific lock files
+            lock_files = ['main.py.lock', '.git/index.lock', 'db.lock', 'program.lock']
             for lock_file in lock_files:
                 lock_path = os.path.join(program_directory, lock_file)
                 if os.path.exists(lock_path):
@@ -1571,19 +1599,16 @@ def is_program_running(program_directory):
                         logger.info(f"SI Op Manager appears to be running (lock file {lock_file} is locked)")
                         return True
             
-            # Try to create a test file in a non-critical directory
-            test_dir = os.path.join(program_directory, 'temp')
-            os.makedirs(test_dir, exist_ok=True)
-            test_file = os.path.join(test_dir, '.lock_test')
+            # Third check: Try to rename the directory
             try:
-                with open(test_file, 'w') as f:
-                    f.write('test')
-                os.remove(test_file)
-                os.rmdir(test_dir)
-            except (IOError, PermissionError):
-                logger.info(f"SI Op Manager appears to be running (file creation test failed)")
+                temp_name = program_directory + '_temp'
+                os.rename(program_directory, temp_name)
+                os.rename(temp_name, program_directory)
+            except (OSError, PermissionError):
+                logger.info("SI Op Manager appears to be running (directory is locked)")
                 return True
             
+            logger.info("SI Op Manager does not appear to be running")
             return False
 
         # Standard handling for other programs
