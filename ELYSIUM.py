@@ -22,18 +22,47 @@ import winreg
 # Set up basic logging first
 log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
 os.makedirs(log_dir, exist_ok=True)
-log_file = os.path.join(log_dir, f'dependency_log_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
 
-# Configure logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
-)
+# Initialize logger with just a console handler first
 logger = logging.getLogger('ElysiumDependencyManager')
+logger.setLevel(logging.INFO)
+
+# Always set up console logging first
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(console_handler)
+
+# Try to set up file logging with retries
+def setup_file_logging():
+    max_retries = 3
+    retry_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Generate unique log filename using timestamp and random suffix
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            random_suffix = os.urandom(2).hex()
+            log_file = os.path.join(log_dir, f'dependency_log_{timestamp}_{random_suffix}.log')
+            
+            # Try to open the file to test if it's accessible
+            with open(log_file, 'a') as f:
+                pass
+                
+            # If successful, add the file handler
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            logger.addHandler(file_handler)
+            return True
+        except (IOError, PermissionError) as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                # Log to console that file logging is disabled
+                logger.warning(f"Could not set up file logging after {max_retries} attempts. Continuing without file logging.")
+                return False
+
+# Try to set up file logging, but continue if it fails
+setup_file_logging()
 
 # Function to check and install dependencies
 def check_and_install_elysium_dependencies():
