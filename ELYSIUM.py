@@ -1,6 +1,70 @@
-import subprocess
-import sys
 import os
+import logging
+import datetime
+import time
+import sys
+
+# Set up basic logging first - MUST BE BEFORE ANY OTHER IMPORTS OR OPERATIONS
+def setup_logging():
+    try:
+        # Initialize logger with just a console handler first
+        logger = logging.getLogger('ElysiumDependencyManager')
+        logger.setLevel(logging.INFO)
+        
+        # Prevent duplicate handlers
+        if not logger.handlers:
+            # Always set up console logging first
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            logger.addHandler(console_handler)
+        
+        # Try to set up file logging with retries
+        max_retries = 3
+        retry_delay = 1  # seconds
+        
+        # Create logs directory if it doesn't exist
+        log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        
+        for attempt in range(max_retries):
+            try:
+                # Generate unique log filename using timestamp and random suffix
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                random_suffix = str(int(time.time() * 1000) % 1000)  # Use milliseconds as suffix
+                log_file = os.path.join(log_dir, f'dependency_log_{timestamp}_{random_suffix}.log')
+                
+                # Try to open the file to test if it's accessible
+                with open(log_file, 'a') as f:
+                    pass
+                    
+                # If successful, add the file handler
+                file_handler = logging.FileHandler(log_file)
+                file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+                logger.addHandler(file_handler)
+                return logger
+            except (IOError, PermissionError) as e:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    # Log to console that file logging is disabled
+                    logger.warning(f"Could not set up file logging after {max_retries} attempts. Continuing without file logging.")
+        return logger
+    except Exception as e:
+        # If anything fails during logging setup, set up a basic console logger
+        basic_logger = logging.getLogger('ElysiumDependencyManager')
+        basic_logger.setLevel(logging.INFO)
+        if not basic_logger.handlers:
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            basic_logger.addHandler(console_handler)
+        basic_logger.warning(f"Failed to set up full logging system: {str(e)}. Continuing with console logging only.")
+        return basic_logger
+
+# Set up logging immediately
+logger = setup_logging()
+
+# Now import everything else
+import subprocess
 import requests
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect, QThread
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QProgressBar, QDialog, QTextEdit, QComboBox, QShortcut
@@ -12,57 +76,9 @@ import win32com.client
 import re
 import pkg_resources
 from pkg_resources import DistributionNotFound, VersionConflict
-import logging
-import datetime
 import shutil
 import tempfile
-import time
 import winreg
-
-# Set up basic logging first
-log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
-os.makedirs(log_dir, exist_ok=True)
-
-# Initialize logger with just a console handler first
-logger = logging.getLogger('ElysiumDependencyManager')
-logger.setLevel(logging.INFO)
-
-# Always set up console logging first
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(console_handler)
-
-# Try to set up file logging with retries
-def setup_file_logging():
-    max_retries = 3
-    retry_delay = 1  # seconds
-    
-    for attempt in range(max_retries):
-        try:
-            # Generate unique log filename using timestamp and random suffix
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            random_suffix = os.urandom(2).hex()
-            log_file = os.path.join(log_dir, f'dependency_log_{timestamp}_{random_suffix}.log')
-            
-            # Try to open the file to test if it's accessible
-            with open(log_file, 'a') as f:
-                pass
-                
-            # If successful, add the file handler
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-            logger.addHandler(file_handler)
-            return True
-        except (IOError, PermissionError) as e:
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay)
-            else:
-                # Log to console that file logging is disabled
-                logger.warning(f"Could not set up file logging after {max_retries} attempts. Continuing without file logging.")
-                return False
-
-# Try to set up file logging, but continue if it fails
-setup_file_logging()
 
 # Function to check and install dependencies
 def check_and_install_elysium_dependencies():
