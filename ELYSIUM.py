@@ -786,6 +786,18 @@ class ProgramUpdater(QWidget):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
 
+        # Add version label to top right
+        version_label = QLabel('v1.1', self)
+        version_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        version_label.setStyleSheet('''
+            QLabel {
+                font-size: 8px;
+                color: #666666;
+                margin: 5px;
+            }
+        ''')
+        layout.addWidget(version_label)
+
         # Add a welcome message with the user's name
         welcome_label = QLabel(f'Welcome, {self.user_first_name}!', self)
         welcome_label.setAlignment(Qt.AlignCenter)
