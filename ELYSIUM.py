@@ -18,7 +18,6 @@ import shutil
 import tempfile
 import time
 import winreg
-import msvcrt
 
 # Set up basic logging first
 log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
@@ -130,7 +129,7 @@ try:
     import win32com.client
     import pkg_resources
     # Try to import wmi
-    import wmi
+    import wmi  # type: ignore
     logger.info("All required packages are already installed")
 except ImportError as e:
     # If any package is missing, we need to install it
@@ -160,7 +159,7 @@ from pkg_resources import DistributionNotFound, VersionConflict
 import openpyxl
 import win32com.client
 # Now it's safe to import wmi
-import wmi
+import wmi  # type: ignore
 
 def download_icon(url):
     try:
@@ -964,76 +963,26 @@ class ProgramUpdater(QWidget):
         try:
             # Check if Git is installed before attempting to update
             if not is_git_installed():
+                logger.warning(f"Cannot update {program_name}: Git is not installed")
                 self.update_status(f"Cannot update {program_name}: Git is not installed")
-                self.thread_finished(program_name)
                 return
             
             base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
             folder_name = self.programs[program_name].get('repo_name', program_name)
             program_directory = os.path.join(base_directory, folder_name)
 
-            # Skip if directory doesn't exist yet (first time installation)
-            if not os.path.exists(program_directory):
-                pass
-            else:
-                # Special handling for SI Op Manager
-                if program_name == "SI Op Manager":
-                    # More aggressive retries and longer waits for SI Op Manager
-                    retries = 5
-                    for attempt in range(retries):
-                        if is_program_running(program_directory):
-                            if attempt < retries - 1:
-                                self.update_status(f"SI Op Manager is running, waiting before retry ({attempt + 1}/{retries})...")
-                                time.sleep(2)  # Longer wait for SI Op Manager
-                                continue
-                            else:
-                                self.update_status("SI Op Manager is currently running - please close it and try again")
-                                QMessageBox.warning(self, 'Update Skipped', 
-                                                 'SI Op Manager is currently running.\n\n'
-                                                 'To update:\n'
-                                                 '1. Close SI Op Manager\n'
-                                                 '2. Try updating again')
-                                self.thread_finished(program_name)
-                                return
-                        break
-                else:
-                    # Standard handling for other programs
-                    retries = 3
-                    for attempt in range(retries):
-                        if is_program_running(program_directory):
-                            if attempt < retries - 1:
-                                time.sleep(1)  # Standard wait for other programs
-                                continue
-                            else:
-                                self.update_status(f"Skipping {program_name} (currently running)")
-                                self.thread_finished(program_name)
-                                return
-                        break
-
-            try:
-                # Create and start the update thread
-                update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
-                update_thread.progress_signal.connect(self.update_status)
-                update_thread.finished_signal.connect(lambda: self.thread_finished(program_name))
-                
-                self.active_threads.append(update_thread)
-                update_thread.start()
-            except (OSError, PermissionError) as e:
-                # If we get a permission error during thread creation/start, handle it gracefully
-                error_msg = f"Cannot update {program_name} - program is in use"
-                self.update_status(error_msg)
-                if program_name == "SI Op Manager":
-                    QMessageBox.warning(self, 'Update Failed', 
-                                     'Cannot update SI Op Manager while it is running.\n\n'
-                                     'To update:\n'
-                                     '1. Close SI Op Manager\n'
-                                     '2. Try updating again')
-                self.thread_finished(program_name)
-                return
+            # Create and start the update thread
+            update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
+            update_thread.progress_signal.connect(self.update_status)
+            update_thread.finished_signal.connect(lambda: self.thread_finished(program_name))
+            
+            self.active_threads.append(update_thread)
+            update_thread.start()
 
         except Exception as e:
-            self.update_status(f"Error updating {program_name}")
-            self.thread_finished(program_name)
+            error_msg = f"Error updating {program_name}: {str(e)}"
+            self.update_status(error_msg)
+            logger.error(error_msg, exc_info=True)
 
     def thread_finished(self, program_name):
         self.completed_updates += 1
@@ -1152,11 +1101,11 @@ class ProgramUpdater(QWidget):
 
                 # Special handling for SI Op Manager
                 if program_name == "SI Op Manager":
-                    pythonw_path = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
                     subprocess.Popen(
-                        [pythonw_path, program_path],
+                        ['python', program_path],
                         env=launch_env,
-                        cwd=installation_directory
+                        cwd=installation_directory,
+                        creationflags=subprocess.CREATE_NO_WINDOW
                     )
                 else:
                     # Original launch method for all other programs
@@ -1555,65 +1504,6 @@ def get_user_first_name():
     logger.warning("Could not determine user name, using default")
     return "User"
 
-def is_program_running(program_directory):
-    """Check if a program in the given directory is currently running by checking file locks."""
-    try:
-        # Special handling for SI Op Manager
-        if "SI-Opportunity-Manager" in program_directory:
-            try:
-                # First check: Try to access the main script file
-                main_script = os.path.join(program_directory, 'main.py')
-                if os.path.exists(main_script):
-                    try:
-                        with open(main_script, 'r+') as f:
-                            # Try to get an exclusive lock on the file
-                            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-                            # Release the lock immediately
-                            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-                    except (IOError, PermissionError):
-                        return True
-                
-                # Second check: Try to rename the directory
-                temp_name = program_directory + '_temp'
-                try:
-                    os.rename(program_directory, temp_name)
-                    os.rename(temp_name, program_directory)
-                except (OSError, PermissionError):
-                    return True
-                
-                return False
-            except Exception:
-                # If any error occurs during checks, assume program is running
-                return True
-
-        # Standard handling for other programs
-        try:
-            # First try: Check if we can create a temporary file in the directory
-            test_file = os.path.join(program_directory, '.lock_test')
-            try:
-                with open(test_file, 'w') as f:
-                    f.write('test')
-                os.remove(test_file)
-            except (IOError, PermissionError):
-                return True
-
-            # Second try: Check if we can rename the directory
-            temp_name = program_directory + '_temp'
-            try:
-                os.rename(program_directory, temp_name)
-                os.rename(temp_name, program_directory)
-            except (OSError, PermissionError):
-                return True
-
-            return False
-        except Exception:
-            # If any error occurs during checks, assume program is running
-            return True
-
-    except Exception:
-        # If we can't even check properly, assume program is running to be safe
-        return True
-
 def main():
     # First, set up basic logging to console (in case file logging fails due to missing dependencies)
     console_handler = logging.StreamHandler()
@@ -1631,7 +1521,7 @@ def main():
         import win32com.client
         import pkg_resources
         # Try to import wmi
-        import wmi
+        import wmi  # type: ignore
         logger.info("All required packages are already installed")
     except ImportError as e:
         # If any package is missing, we need to install it
