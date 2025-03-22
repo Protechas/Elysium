@@ -3,7 +3,6 @@ import logging
 import datetime
 import time
 import sys
-import platform
 
 # Set up basic logging first - MUST BE BEFORE ANY OTHER IMPORTS OR OPERATIONS
 def setup_logging():
@@ -81,7 +80,6 @@ from pkg_resources import DistributionNotFound, VersionConflict
 import shutil
 import tempfile
 import winreg
-import git  # type: ignore
 
 # Function to check and install dependencies
 def check_and_install_elysium_dependencies():
@@ -465,121 +463,266 @@ class RoundedTextLabel(QWidget):
         painter.end()
  
 class GitUpdateThread(QThread):
-    """Thread for updating a Git repository in the background."""
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
 
-    def __init__(self, program_name, repo_url, repo_dir):
+    def __init__(self, program_name, git_repo_url, program_directory):
         super().__init__()
         self.program_name = program_name
-        self.repo_url = repo_url
-        self.repo_dir = repo_dir
-        self.lock_file = os.path.join(self.repo_dir, '.update_lock')
+        self.git_repo_url = git_repo_url
+        self.program_directory = program_directory
 
     def run(self):
-        """Run the update process in a separate thread."""
         try:
-            logger.info(f"Starting update for {self.program_name} in thread")
-            self.progress_signal.emit(f"Updating {self.program_name}...")
-            
-            # Make sure the directory structure exists
-            os.makedirs(os.path.dirname(self.repo_dir), exist_ok=True)
-            
-            # Create lock file
-            try:
-                with open(self.lock_file, 'w') as f:
-                    f.write(f"Update in progress at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-            except Exception as e:
-                logger.error(f"Could not create lock file: {str(e)}")
-                # Continue anyway
-            
-            try:
-                # Check if the directory already exists
-                if not os.path.exists(self.repo_dir):
-                    # Clone the repository
-                    logger.info(f"Cloning {self.repo_url} to {self.repo_dir}")
-                    self.progress_signal.emit(f"Cloning {self.program_name}...")
-                    git.Repo.clone_from(self.repo_url, self.repo_dir)
-                    logger.info(f"Clone completed")
-                else:
-                    # Update the repository
-                    logger.info(f"Updating {self.program_name} in {self.repo_dir}")
-                    self.progress_signal.emit(f"Pulling updates for {self.program_name}...")
-                    
-                    # Make sure it's a git repository
-                    if not os.path.exists(os.path.join(self.repo_dir, '.git')):
-                        logger.warning(f"{self.repo_dir} is not a git repository, renaming and cloning fresh")
-                        # Rename the existing directory to a backup
-                        timestamp = time.strftime("%Y%m%d-%H%M%S")
-                        backup_dir = f"{self.repo_dir}_backup_{timestamp}"
-                        os.rename(self.repo_dir, backup_dir)
-                        logger.info(f"Renamed {self.repo_dir} to {backup_dir}")
-                        
-                        # Clone the repository fresh
-                        git.Repo.clone_from(self.repo_url, self.repo_dir)
-                        logger.info(f"Fresh clone completed")
-                    else:
-                        # Regular update
-                        repo = git.Repo(self.repo_dir)
-                        
-                        # Ensure we're on the default branch
-                        default_branch = repo.active_branch.name
-                        logger.info(f"Current branch: {default_branch}")
-                        
-                        # Get current remote URL
-                        current_remote_url = repo.remotes.origin.url
-                        logger.info(f"Current remote URL: {current_remote_url}")
-                        
-                        # If remote URL has changed, update it
-                        if current_remote_url != self.repo_url:
-                            logger.info(f"Updating remote URL from {current_remote_url} to {self.repo_url}")
-                            repo.remotes.origin.set_url(self.repo_url)
-                        
-                        # Fetch latest changes
-                        repo.remotes.origin.fetch()
-                        
-                        # Try to reset to origin/current_branch
-                        try:
-                            logger.info(f"Attempting to reset to origin/{default_branch}")
-                            repo.git.reset('--hard', f'origin/{default_branch}')
-                        except git.exc.GitCommandError as e:
-                            logger.warning(f"Failed to reset to origin/{default_branch}: {str(e)}")
-                            # Try to reset to origin/main or origin/master as fallback
-                            try:
-                                for branch in ['main', 'master']:
-                                    try:
-                                        logger.info(f"Attempting to reset to origin/{branch}")
-                                        repo.git.reset('--hard', f'origin/{branch}')
-                                        logger.info(f"Successfully reset to origin/{branch}")
-                                        break
-                                    except git.exc.GitCommandError:
-                                        continue
-                            except Exception as e:
-                                logger.error(f"Failed to reset to any branch: {str(e)}")
-                                # Continue without resetting
-                        
-                        # Clean untracked files
-                        repo.git.clean('-fd')
+            if not os.path.exists(self.program_directory) or not os.listdir(self.program_directory):
+                self.progress_signal.emit(f"Cloning {self.program_name}...")
+                # Use shallow clone (--depth 1) and single branch for faster cloning
+                process = subprocess.Popen(
+                    ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
+                    stdout=PIPE, stderr=PIPE, universal_newlines=True
+                )
+            else:
+                self.progress_signal.emit(f"Updating {self.program_name}...")
+                # Fetch only the latest changes
+                process = subprocess.Popen(
+                    ['git', '-C', self.program_directory, 'pull', '--depth', '1', '--no-tags'],
+                    stdout=PIPE, stderr=PIPE, universal_newlines=True
+                )
+
+            while True:
+                output = process.stderr.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    self.progress_signal.emit(output.strip())
+
+            if process.returncode == 0:
+                self.progress_signal.emit(f"{self.program_name} update completed successfully.")
                 
-                self.progress_signal.emit(f"Updated {self.program_name} successfully")
-                logger.info(f"Update completed for {self.program_name}")
-            except Exception as e:
-                error_msg = f"Error updating {self.program_name}: {str(e)}"
-                self.progress_signal.emit(error_msg)
-                logger.error(error_msg)
-            finally:
-                # Remove lock file
-                if os.path.exists(self.lock_file):
-                    try:
-                        os.remove(self.lock_file)
-                    except Exception as e:
-                        logger.error(f"Could not remove lock file: {str(e)}")
+                # Check for requirements.txt and install dependencies
+                requirements_file = os.path.join(self.program_directory, 'requirements.txt')
+                if os.path.exists(requirements_file):
+                    self.progress_signal.emit(f"Checking dependencies for {self.program_name}...")
+                    self.check_and_install_dependencies(requirements_file)
+            else:
+                self.progress_signal.emit(f"Error updating {self.program_name}.")
+
         except Exception as e:
-            logger.error(f"Unexpected error in update thread for {self.program_name}: {str(e)}", exc_info=True)
-            self.progress_signal.emit(f"Error updating {self.program_name}")
+            self.progress_signal.emit(f"Error: {str(e)}")
         finally:
-            # Signal that we're done
             self.finished_signal.emit()
+            
+    def check_and_install_dependencies(self, requirements_file):
+        try:
+            logger.info(f"Starting dependency check for {self.program_name} using {requirements_file}")
+            
+            # Read requirements file
+            with open(requirements_file, 'r') as f:
+                # Handle both full-line comments and inline comments
+                required_packages = []
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        # Remove inline comments
+                        if '#' in line:
+                            line = line.split('#')[0].strip()
+                        required_packages.append(line)
+            
+            logger.info(f"Found {len(required_packages)} required packages: {', '.join(required_packages)}")
+            
+            if not required_packages:
+                self.progress_signal.emit("No dependencies found in requirements file.")
+                logger.info("No dependencies found in requirements file.")
+                return
+                
+            # Check which packages need to be installed
+            missing_packages = []
+            installed_packages = []
+            for package_req in required_packages:
+                # Handle package with version specifier and strip inline comments
+                package_req_clean = package_req.split('#')[0].strip()
+                package_name = package_req_clean.split('==')[0].split('>')[0].split('<')[0].strip()
+                try:
+                    # Use the clean version for requirement checking
+                    pkg_resources.require(package_req_clean)
+                    installed_packages.append(package_req_clean)
+                    logger.info(f"Package already satisfied: {package_req}")
+                except (DistributionNotFound, VersionConflict) as e:
+                    missing_packages.append(package_req_clean)
+                    logger.warning(f"Package needs installation: {package_req} - Reason: {str(e)}")
+            
+            if not missing_packages:
+                self.progress_signal.emit("All dependencies are already satisfied.")
+                logger.info("All dependencies are already satisfied.")
+                return
+            
+            logger.info(f"Need to install {len(missing_packages)} packages: {', '.join(missing_packages)}")
+                
+            # Try batch installation first
+            self.progress_signal.emit(f"Installing {len(missing_packages)} dependencies in batch mode...")
+            logger.info(f"Attempting batch installation of {len(missing_packages)} packages")
+            
+            try:
+                process = subprocess.Popen(
+                    [sys.executable, '-m', 'pip', 'install'] + missing_packages,
+                    stdout=PIPE, stderr=PIPE, universal_newlines=True
+                )
+                
+                # Log the exact command being run
+                logger.info(f"Running command: {sys.executable} -m pip install {' '.join(missing_packages)}")
+                
+                # Collect all output for logging
+                all_output = []
+                
+                # Monitor the installation process
+                while True:
+                    output = process.stdout.readline()
+                    if output == '' and process.poll() is not None:
+                        break
+                    if output:
+                        output = output.strip()
+                        self.progress_signal.emit(output)
+                        all_output.append(output)
+                
+                # Also collect any stderr output
+                stderr_output = process.stderr.read() if process.stderr else ""
+                if stderr_output:
+                    logger.warning(f"Stderr from batch installation: {stderr_output}")
+                
+                # Log all collected output
+                if all_output:
+                    logger.info("Batch installation output:\n" + "\n".join(all_output))
+                
+                if process.returncode == 0:
+                    self.progress_signal.emit("All dependencies installed successfully.")
+                    logger.info("Batch installation completed successfully")
+                    return
+                else:
+                    self.progress_signal.emit("Batch installation failed. Trying individual installations...")
+                    logger.warning(f"Batch installation failed with return code {process.returncode}. Falling back to individual installations.")
+            except Exception as e:
+                error_msg = f"Batch installation error: {str(e)}. Trying individual installations..."
+                self.progress_signal.emit(error_msg)
+                logger.error(error_msg, exc_info=True)
+            
+            # If batch installation fails, try installing packages individually
+            logger.info("Starting individual package installations")
+            successful_installs = 0
+            failed_packages = []
+            
+            for package in missing_packages:
+                try:
+                    self.progress_signal.emit(f"Installing {package}...")
+                    logger.info(f"Attempting to install {package}")
+                    
+                    # Try to install the package with multiple retry strategies if needed
+                    success, output = self.install_package_with_retries(package)
+                    
+                    if success:
+                        successful_installs += 1
+                        logger.info(f"Successfully installed {package}")
+                    else:
+                        failed_packages.append(package)
+                        logger.error(f"Failed to install {package} after all retry attempts")
+                        self.progress_signal.emit(f"Failed to install {package} after multiple attempts")
+                except Exception as e:
+                    failed_packages.append(package)
+                    error_msg = f"Error installing {package}: {str(e)}"
+                    self.progress_signal.emit(error_msg)
+                    logger.error(error_msg, exc_info=True)
+            
+            status_msg = f"Dependency installation completed. {successful_installs}/{len(missing_packages)} packages installed successfully."
+            self.progress_signal.emit(status_msg)
+            
+            if failed_packages:
+                logger.warning(f"Failed to install these packages: {', '.join(failed_packages)}")
+            
+            logger.info(status_msg)
+            
+        except Exception as e:
+            error_msg = f"Error checking dependencies: {str(e)}"
+            self.progress_signal.emit(error_msg)
+            logger.error(error_msg, exc_info=True)
+            
+    def install_package_with_retries(self, package):
+        """Try multiple strategies to install a package with retries."""
+        # Strategy 1: Standard pip install
+        self.progress_signal.emit(f"Trying standard installation for {package}...")
+        logger.info(f"Strategy 1: Standard pip install for {package}")
+        success, output = self.try_install_package(package)
+        if success:
+            return True, output
+            
+        # Strategy 2: Try with --no-cache-dir option
+        self.progress_signal.emit(f"Retrying {package} with --no-cache-dir...")
+        logger.info(f"Strategy 2: Trying pip install with --no-cache-dir for {package}")
+        success, output = self.try_install_package(package, ["--no-cache-dir"])
+        if success:
+            return True, output
+            
+        # Strategy 3: Try with --no-deps option
+        self.progress_signal.emit(f"Retrying {package} with --no-deps...")
+        logger.info(f"Strategy 3: Trying pip install with --no-deps for {package}")
+        success, output = self.try_install_package(package, ["--no-deps"])
+        if success:
+            return True, output
+            
+        # Strategy 4: Try with --user option
+        self.progress_signal.emit(f"Retrying {package} with --user...")
+        logger.info(f"Strategy 4: Trying pip install with --user for {package}")
+        success, output = self.try_install_package(package, ["--user"])
+        if success:
+            return True, output
+            
+        # Strategy 5: Try with an alternative index URL (PyPI mirror)
+        self.progress_signal.emit(f"Retrying {package} with alternative index...")
+        logger.info(f"Strategy 5: Trying pip install with alternative index for {package}")
+        success, output = self.try_install_package(package, ["--index-url", "https://pypi.org/simple"])
+        if success:
+            return True, output
+            
+        # Strategy 6: Try with --trusted-host option if it might be a certificate issue
+        self.progress_signal.emit(f"Retrying {package} with trusted-host option...")
+        logger.info(f"Strategy 6: Trying pip install with trusted-host for {package}")
+        success, output = self.try_install_package(package, ["--trusted-host", "pypi.org", "--trusted-host", "files.pythonhosted.org"])
+        if success:
+            return True, output
+            
+        # All strategies failed
+        return False, output
+        
+    def try_install_package(self, package, extra_args=None):
+        """Try to install a package with the given extra arguments."""
+        try:
+            # Clean the package name by removing any comments
+            package_clean = package.split('#')[0].strip()
+            
+            cmd = [sys.executable, '-m', 'pip', 'install', package_clean]
+            if extra_args:
+                cmd.extend(extra_args)
+                
+            logger.info(f"Running command: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=PIPE, stderr=PIPE, universal_newlines=True
+            )
+            
+            stdout, stderr = process.communicate()
+            
+            # Log the output
+            if stdout:
+                logger.info(f"Output from installing {package}:\n{stdout}")
+            if stderr:
+                logger.warning(f"Error output for {package}:\n{stderr}")
+                
+            if process.returncode == 0:
+                return True, stdout
+            else:
+                return False, stderr
+        except Exception as e:
+            logger.error(f"Exception during installation of {package}: {str(e)}", exc_info=True)
+            return False, str(e)
 
 class ProgramUpdater(QWidget):
     light_style = '''
@@ -633,23 +776,21 @@ class ProgramUpdater(QWidget):
     '''
 
     def __init__(self):
-        # Call the parent constructor
         super().__init__()
-        
-        # Initialize variables
-        self.programs = {}
-        self.selected_program = None
-        self.user_first_name = get_user_first_name()
-        self.active_threads = []  # For tracking update threads
-        self.completed_updates = 0
-        self.total_updates = 0
-
         self.base_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium')
         if not os.path.exists(self.base_dir):
             os.makedirs(self.base_dir)
+
+        # Get user's first name
+        self.user_first_name = get_user_first_name()
+        logger.info(f"User first name: {self.user_first_name}")
         
         self.desktop_icon_url = "https://raw.githubusercontent.com/Protechas/Elysium/main/ELYSIUM_icon.ico"
         self.desktop_icon_path = self.download_icon(self.desktop_icon_url)
+        
+        self.active_threads = []
+        self.completed_updates = 0
+        self.total_updates = 0
 
         self.programs = {
             "DFR": {
@@ -876,151 +1017,179 @@ class ProgramUpdater(QWidget):
         self.selected_program = program
         self.update_and_launch_program()
  
-    def update_program_direct(self, program_name, repo_url):
-        """Update a program directly from GitHub using Git."""
+    def update_program_direct(self, program_name, git_repo_url):
         try:
-            folder_name = self.programs.get(program_name, {}).get('repo_name', program_name)
-            elysium_dir = os.path.join(os.environ.get('USERPROFILE', ''), 'Documents', 'Elysium')
-            installation_directory = os.path.join(elysium_dir, folder_name)
-            lock_file = os.path.join(installation_directory, '.update_lock')
-            
-            # Create Elysium directory if it doesn't exist
-            if not os.path.exists(elysium_dir):
-                logger.info(f"Creating Elysium directory at {elysium_dir}")
-                os.makedirs(elysium_dir, exist_ok=True)
-            
-            # Create an update status for the progress bar
-            self.status_label.setText(f"Updating {program_name}...")
-            
-            # Update progress bar
-            current_progress = int((self.completed_updates / self.total_updates) * 100)
-            self.progress_bar.setValue(current_progress)
-            QApplication.processEvents()
-                
-            # Check if directory exists but is not a git repo
-            if os.path.exists(installation_directory) and not os.path.exists(os.path.join(installation_directory, '.git')):
-                logger.info(f"Directory exists but not a git repo: {installation_directory}")
-                # Rename the existing directory to a backup
-                timestamp = time.strftime("%Y%m%d-%H%M%S")
-                backup_dir = f"{installation_directory}_backup_{timestamp}"
-                logger.info(f"Renaming existing directory to {backup_dir}")
-                try:
-                    os.rename(installation_directory, backup_dir)
-                except Exception as e:
-                    logger.error(f"Failed to rename directory: {str(e)}")
-                    # Try to delete the directory if we can't rename it
-                    shutil.rmtree(installation_directory, ignore_errors=True)
-            
-            # Check if lock file exists
-            if os.path.exists(lock_file):
-                logger.warning(f"Update lock file exists for {program_name}, skipping update")
-                self.status_label.setText(f"Skipping update for {program_name} (locked)")
+            # Check if Git is installed before attempting to update
+            if not is_git_installed():
+                logger.warning(f"Cannot update {program_name}: Git is not installed")
+                self.update_status(f"Cannot update {program_name}: Git is not installed")
                 return
             
-            # Create lock file
-            try:
-                with open(lock_file, 'w') as f:
-                    f.write(f"Update in progress at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-            except Exception as e:
-                logger.error(f"Could not create lock file: {str(e)}")
-                # Continue anyway
+            base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+            folder_name = self.programs[program_name].get('repo_name', program_name)
+            program_directory = os.path.join(base_directory, folder_name)
+
+            # Create and start the update thread
+            update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
+            update_thread.progress_signal.connect(self.update_status)
+            update_thread.finished_signal.connect(lambda: self.thread_finished(program_name))
             
-            try:
-                # Check if directory exists
-                if not os.path.exists(installation_directory):
-                    # Clone the repository
-                    logger.info(f"Cloning {repo_url} to {installation_directory}")
-                    self.status_label.setText(f"Cloning {program_name}...")
-                    git.Repo.clone_from(repo_url, installation_directory)
-                    logger.info(f"Successfully cloned {repo_url}")
+            self.active_threads.append(update_thread)
+            update_thread.start()
+
+        except Exception as e:
+            error_msg = f"Error updating {program_name}: {str(e)}"
+            self.update_status(error_msg)
+            logger.error(error_msg, exc_info=True)
+
+    def thread_finished(self, program_name):
+        self.completed_updates += 1
+        self.progress_bar.setValue(int((self.completed_updates / self.total_updates) * 100))
+        
+        if self.completed_updates == self.total_updates:
+            self.progress_bar.hide()
+            self.status_label.setText("All updates completed!")
+            self.active_threads.clear()
+            self.completed_updates = 0
+
+    def update_status(self, message):
+        self.status_label.setText(message)
+
+    def update_all_programs(self):
+        # Check if Git is installed
+        if not is_git_installed():
+            logger.info("Git not found, prompting user for installation")
+            reply = QMessageBox.question(
+                self, 
+                'Git Required', 
+                "Git is required to update programs but is not installed. Would you like to install it now?",
+                QMessageBox.Yes | QMessageBox.No, 
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                self.status_label.setText("Installing Git...")
+                if install_git():
+                    self.status_label.setText("Git installed successfully.")
+                    # Git should now be in PATH for this session
                 else:
-                    # Update the repository
-                    logger.info(f"Updating {program_name} in {installation_directory}")
-                    self.status_label.setText(f"Pulling updates for {program_name}...")
-                    repo = git.Repo(installation_directory)
+                    QMessageBox.critical(
+                        self, 
+                        'Installation Failed', 
+                        "Failed to install Git. Please install it manually from https://git-scm.com/download/win"
+                    )
+                    return
+            else:
+                QMessageBox.warning(
+                    self, 
+                    'Update Cancelled', 
+                    "Cannot update programs without Git."
+                )
+                return
+        
+        # Continue with program updates as before
+        self.completed_updates = 0
+        self.total_updates = len(self.programs)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.show()
+        
+        for program_name, info in self.programs.items():
+            self.update_program_direct(program_name, info["repo_url"])
+
+    def update_and_launch_program(self):
+        if self.selected_program:
+            try:
+                program_info = self.programs[self.selected_program]
+                program_name = self.selected_program
+                script_name = program_info["script"]
+                folder_name = program_info.get('repo_name', program_name)
+                git_repo_url = program_info.get('repo_url', '')
+
+                # Check if Git is installed before updating
+                if git_repo_url and not is_git_installed():
+                    logger.info(f"Git not found when launching {program_name}, prompting user for installation")
+                    reply = QMessageBox.question(
+                        self, 
+                        'Git Required', 
+                        "Git is required to update programs but is not installed. Would you like to install it now?",
+                        QMessageBox.Yes | QMessageBox.No, 
+                        QMessageBox.Yes
+                    )
                     
-                    # Ensure we're on the default branch
-                    default_branch = repo.active_branch.name
-                    logger.info(f"Current branch: {default_branch}")
-                    
-                    # Get current remote URL
-                    current_remote_url = repo.remotes.origin.url
-                    logger.info(f"Current remote URL: {current_remote_url}")
-                    
-                    # If remote URL has changed, update it
-                    if current_remote_url != repo_url:
-                        logger.info(f"Updating remote URL from {current_remote_url} to {repo_url}")
-                        repo.remotes.origin.set_url(repo_url)
-                    
-                    # Fetch latest changes
-                    repo.remotes.origin.fetch()
-                    
-                    # Try to reset to origin/current_branch
-                    try:
-                        logger.info(f"Attempting to reset to origin/{default_branch}")
-                        repo.git.reset('--hard', f'origin/{default_branch}')
-                    except git.exc.GitCommandError as e:
-                        logger.warning(f"Failed to reset to origin/{default_branch}: {str(e)}")
-                        # Try to reset to origin/main or origin/master as fallback
-                        try:
-                            for branch in ['main', 'master']:
-                                try:
-                                    logger.info(f"Attempting to reset to origin/{branch}")
-                                    repo.git.reset('--hard', f'origin/{branch}')
-                                    logger.info(f"Successfully reset to origin/{branch}")
-                                    break
-                                except git.exc.GitCommandError:
-                                    continue
-                        except Exception as e:
-                            logger.error(f"Failed to reset to any branch: {str(e)}")
-                            # Continue without resetting
-                    
-                    # Clean untracked files
-                    repo.git.clean('-fd')
+                    if reply == QMessageBox.Yes:
+                        self.status_label.setText("Installing Git...")
+                        if install_git():
+                            self.status_label.setText("Git installed successfully.")
+                            # Git should now be in PATH for this session
+                        else:
+                            QMessageBox.critical(
+                                self, 
+                                'Installation Failed', 
+                                "Failed to install Git. Please install it manually from https://git-scm.com/download/win"
+                            )
+                            # Continue without updating
+                    else:
+                        # Continue without updating
+                        pass
                 
-                logger.info(f"Successfully updated {program_name}")
-                self.status_label.setText(f"Updated {program_name}")
-            except Exception as e:
-                error_msg = f"Error updating {program_name}: {str(e)}"
-                logger.error(error_msg)
-                self.status_label.setText(error_msg)
-                # Continue with other updates
-            finally:
-                # Remove lock file
-                if os.path.exists(lock_file):
-                    try:
-                        os.remove(lock_file)
-                    except Exception as e:
-                        logger.error(f"Could not remove lock file: {str(e)}")
-                
-                # Mark update as completed for progress
-                self.completed_updates += 1
-                current_progress = int((self.completed_updates / self.total_updates) * 100)
-                self.progress_bar.setValue(current_progress)
-                QApplication.processEvents()
-                
-                # Update requirements if needed
+                # Update the program before launching (if Git is available)
+                if git_repo_url and is_git_installed():
+                    self.update_program_direct(program_name, git_repo_url)
+
+                # Get the installation directory using the correct folder name
+                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
+
+                # Check for requirements.txt and install dependencies if needed
                 requirements_file = os.path.join(installation_directory, 'requirements.txt')
                 if os.path.exists(requirements_file):
-                    try:
-                        self.check_dependencies_before_launch(requirements_file)
-                    except Exception as e:
-                        logger.error(f"Error installing dependencies for {program_name}: {str(e)}")
-                        # Continue anyway
-        except Exception as e:
-            logger.error(f"Unexpected error in update_program_direct for {program_name}: {str(e)}", exc_info=True)
-            self.status_label.setText(f"Error updating {program_name}")
-            # Make sure we mark as completed for progress bar
-            self.completed_updates += 1
+                    self.status_label.setText(f"Checking dependencies for {program_name}...")
+                    self.check_dependencies_before_launch(requirements_file)
+
+                # Launch the program
+                program_path = os.path.join(installation_directory, script_name)
+                
+                if not os.path.exists(program_path):
+                    raise FileNotFoundError(f"Could not find {script_name} in {installation_directory}")
+
+                # Pass the dark mode style sheet to the launched program
+                launch_env = os.environ.copy()
+                launch_env['LAUNCHER_STYLE'] = self.dark_style
+                launch_env['PYTHONPATH'] = installation_directory
+
+                # Special handling for SI Op Manager
+                if program_name == "SI Op Manager":
+                    subprocess.Popen(
+                        ['python', program_path],
+                        env=launch_env,
+                        cwd=installation_directory,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                else:
+                    # Original launch method for all other programs
+                    subprocess.Popen(
+                        ['python', program_path],
+                        env=launch_env,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+
+                QMessageBox.information(self, 'Launch', f"Launching {program_name} for {self.user_first_name}...")
+
+            except Exception as e:
+                error_msg = f"Error updating or launching {program_name}: {str(e)}"
+                QMessageBox.warning(self, 'Error', error_msg)
+                logger.error(error_msg, exc_info=True)
+        else:
+            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
             
     def check_dependencies_before_launch(self, requirements_file):
-        """Check and install any missing dependencies from requirements.txt."""
         try:
-            logger.info(f"Checking dependencies from {requirements_file}")
-            self.status_label.setText(f"Checking dependencies...")
+            program_name = self.selected_program
+            logger.info(f"Checking dependencies before launching {program_name} using {requirements_file}")
             
             # Read requirements file
             with open(requirements_file, 'r') as f:
+                # Handle both full-line comments and inline comments
                 required_packages = []
                 for line in f:
                     line = line.strip()
@@ -1030,58 +1199,151 @@ class ProgramUpdater(QWidget):
                             line = line.split('#')[0].strip()
                         required_packages.append(line)
             
+            logger.info(f"Found {len(required_packages)} required packages: {', '.join(required_packages)}")
+            
             if not required_packages:
                 logger.info("No dependencies found in requirements file.")
                 return
                 
-            # Install dependencies using pip
+            # Check which packages need to be installed
+            missing_packages = []
+            installed_packages = []
+            
+            # Make sure pkg_resources is available
             try:
-                logger.info(f"Installing dependencies: {', '.join(required_packages)}")
+                import pkg_resources
+                from pkg_resources import DistributionNotFound, VersionConflict
+                
+                for package_req in required_packages:
+                    # Handle package with version specifier and strip inline comments
+                    package_req_clean = package_req.split('#')[0].strip()
+                    package_name = package_req_clean.split('==')[0].split('>')[0].split('<')[0].strip()
+                    try:
+                        # Use the clean version for requirement checking
+                        pkg_resources.require(package_req_clean)
+                        installed_packages.append(package_req_clean)
+                        logger.info(f"Package already satisfied: {package_req}")
+                    except (DistributionNotFound, VersionConflict) as e:
+                        missing_packages.append(package_req_clean)
+                        logger.warning(f"Package needs installation: {package_req} - Reason: {str(e)}")
+            except ImportError:
+                # If pkg_resources is not available, assume all packages need to be installed
+                logger.warning("pkg_resources not available, assuming all packages need installation")
+                missing_packages = required_packages
+            
+            if not missing_packages:
+                self.status_label.setText("All dependencies are already satisfied.")
+                logger.info("All dependencies are already satisfied.")
+                return
+            
+            logger.info(f"Need to install {len(missing_packages)} packages for {program_name}: {', '.join(missing_packages)}")
+                
+            # Ask user if they want to install missing dependencies
+            reply = QMessageBox.question(
+                self, 
+                'Missing Dependencies', 
+                f"Some dependencies are missing. Do you want to install them now?\n\nMissing packages: {', '.join(missing_packages)}",
+                QMessageBox.Yes | QMessageBox.No, 
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                logger.info("User chose to install missing dependencies")
+                
+                # Try batch installation
                 self.status_label.setText("Installing dependencies...")
+                logger.info(f"Attempting batch installation of {len(missing_packages)} packages")
                 
-                # Run pip install in a subprocess
-                process = subprocess.Popen(
-                    [sys.executable, "-m", "pip", "install", "-r", requirements_file],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True
-                )
-                
-                # Get output and errors
-                stdout, stderr = process.communicate()
-                
-                # Log output
-                if stdout:
-                    logger.info(f"Pip install output: {stdout}")
-                if stderr:
-                    logger.warning(f"Pip install errors: {stderr}")
+                try:
+                    # Log the exact command being run
+                    cmd = f"{sys.executable} -m pip install {' '.join(missing_packages)}"
+                    logger.info(f"Running command: {cmd}")
                     
-                if process.returncode == 0:
-                    logger.info("Dependencies installed successfully")
-                    self.status_label.setText("Dependencies installed")
-                else:
-                    # Try installing packages one by one if batch install fails
-                    logger.warning(f"Batch installation failed with code {process.returncode}, trying individual packages")
-                    self.status_label.setText("Trying individual package installation...")
+                    process = subprocess.Popen(
+                        [sys.executable, '-m', 'pip', 'install'] + missing_packages,
+                        stdout=PIPE, stderr=PIPE, universal_lines=True
+                    )
                     
-                    for package in required_packages:
-                        try:
-                            logger.info(f"Installing individual package: {package}")
-                            subprocess.run(
-                                [sys.executable, "-m", "pip", "install", package],
-                                check=False,  # Don't raise exception on error
-                                capture_output=True,
-                                text=True
+                    output, error = process.communicate()
+                    
+                    # Log the output
+                    if output:
+                        logger.info(f"Batch installation output:\n{output}")
+                    if error:
+                        logger.warning(f"Batch installation stderr:\n{error}")
+                    
+                    if process.returncode == 0:
+                        self.status_label.setText("All dependencies installed successfully.")
+                        logger.info("Batch installation completed successfully")
+                    else:
+                        # If batch installation fails, try individual installations
+                        error_msg = f"Batch installation failed with return code {process.returncode}. Trying individual installations."
+                        self.status_label.setText("Batch installation failed. Trying individual installations...")
+                        logger.warning(error_msg)
+                        
+                        successful_installs = 0
+                        failed_packages = []
+                        
+                        # Create a temporary GitUpdateThread just to use its retry methods
+                        temp_thread = GitUpdateThread("temp", "", "")
+                        # Connect the progress signal to update the status
+                        temp_thread.progress_signal.connect(lambda msg: self.status_label.setText(msg))
+                        
+                        for package in missing_packages:
+                            try:
+                                logger.info(f"Attempting to install {package} individually with retries")
+                                self.status_label.setText(f"Installing {package}...")
+                                
+                                # Use the retry mechanism
+                                success, output = temp_thread.install_package_with_retries(package)
+                                
+                                if success:
+                                    successful_installs += 1
+                                    logger.info(f"Successfully installed {package}")
+                                else:
+                                    failed_packages.append(package)
+                                    logger.error(f"Failed to install {package} after multiple retry strategies")
+                            except Exception as e:
+                                failed_packages.append(package)
+                                logger.error(f"Error installing {package}: {str(e)}", exc_info=True)
+                        
+                        if failed_packages:
+                            error_msg = f"Failed to install {len(failed_packages)} packages: {', '.join(failed_packages)}"
+                            self.status_label.setText(error_msg)
+                            logger.error(error_msg)
+                            
+                            QMessageBox.warning(
+                                self, 
+                                'Installation Failed', 
+                                f"Failed to install some dependencies: {', '.join(failed_packages)}\n\nYou may need to install them manually."
                             )
-                        except Exception as pkg_error:
-                            logger.error(f"Error installing {package}: {str(pkg_error)}")
-                            # Continue with other packages
-            except Exception as e:
-                logger.error(f"Error installing dependencies: {str(e)}")
-                # Continue anyway, as some dependencies might already be installed
+                        else:
+                            success_msg = f"Successfully installed all {successful_installs} packages"
+                            self.status_label.setText(success_msg)
+                            logger.info(success_msg)
+                except Exception as e:
+                    error_msg = f"Error installing dependencies: {str(e)}"
+                    self.status_label.setText(error_msg)
+                    logger.error(error_msg, exc_info=True)
+                    
+                    QMessageBox.warning(
+                        self, 
+                        'Installation Error', 
+                        f"Error installing dependencies: {str(e)}"
+                    )
+            else:
+                logger.info("User chose not to install missing dependencies")
+                self.status_label.setText("Dependency installation skipped.")
+                
+                QMessageBox.warning(
+                    self, 
+                    'Dependencies Required', 
+                    f"The program may not work correctly without the required dependencies."
+                )
         except Exception as e:
-            logger.error(f"Error checking dependencies: {str(e)}")
-            # Continue with launch anyway
+            error_msg = f"Error checking dependencies: {str(e)}"
+            self.status_label.setText(error_msg)
+            logger.error(error_msg, exc_info=True)
 
     def view_dependency_logs(self):
         try:
@@ -1118,14 +1380,14 @@ class ProgramUpdater(QWidget):
                 if len(parts) >= 2:  # Should have at least timestamp and PID
                     date_str = parts[0]
                     pid_str = parts[1] if len(parts) > 1 else "unknown"
-                try:
-                    # Try to parse and format the date
-                    date_obj = datetime.datetime.strptime(date_str, "%Y%m%d%H%M%S")
-                    formatted_date = date_obj.strftime("%Y-%m-%d %H:%M:%S")
-                    log_selector.addItem(f"{formatted_date} (PID: {pid_str})", log_file)
-                except:
-                    # If parsing fails, just use the original string
-                    log_selector.addItem(f"{date_str} (PID: {pid_str})", log_file)
+                    try:
+                        # Try to parse and format the date
+                        date_obj = datetime.datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                        formatted_date = date_obj.strftime("%Y-%m-%d %H:%M:%S")
+                        log_selector.addItem(f"{formatted_date} (PID: {pid_str})", log_file)
+                    except:
+                        # If parsing fails, just use the original string
+                        log_selector.addItem(f"{date_str} (PID: {pid_str})", log_file)
                 else:
                     # Fallback for any files with the old naming convention
                     log_selector.addItem(log_file, log_file)
@@ -1264,346 +1526,6 @@ class ProgramUpdater(QWidget):
             # Restart the application
             python = sys.executable
             os.execl(python, python, *sys.argv)
-
-    def is_si_op_manager_running(self):
-        """Check if SI Op Manager is already running."""
-        try:
-            logger.info("Checking if SI Op Manager is already running")
-            
-            # Get the correct repo name and script name for SI Op Manager
-            info = self.programs.get("SI Op Manager", {})
-            if not info:
-                logger.warning("SI Op Manager info not found in programs dictionary")
-                return False
-                
-            script_name = info.get("script", "main.py")
-            folder_name = info.get('repo_name', "SI Op Manager")
-            
-            # Path to the script
-            program_path = os.path.join(os.environ.get('USERPROFILE', ''), 'Documents', 'Elysium', folder_name, script_name)
-            
-            # If the directory doesn't exist, SI Op Manager can't be running
-            if not os.path.exists(os.path.dirname(program_path)):
-                logger.info(f"SI Op Manager directory doesn't exist: {os.path.dirname(program_path)}")
-                return False
-            
-            # Normalize path for comparison
-            program_path = os.path.normpath(program_path)
-            
-            # Method 1: Try the file lock test first (simpler and more reliable)
-            installation_directory = os.path.join(os.environ.get('USERPROFILE', ''), 'Documents', 'Elysium', folder_name)
-            if os.path.exists(installation_directory):
-                lock_test_file = os.path.join(installation_directory, '.update_lock_test')
-                try:
-                    # Try to create a temporary file in the directory to check if it's locked
-                    with open(lock_test_file, 'w') as f:
-                        f.write('test')
-                    os.remove(lock_test_file)
-                    # We could write to the directory, so it's probably not locked
-                    logger.info("SI Op Manager directory is not locked, it's probably not running")
-                except (IOError, PermissionError) as e:
-                    # If we can't write to the directory, it's likely locked by a running process
-                    logger.info(f"SI Op Manager directory is locked: {str(e)}")
-                    return True
-            
-            # Method 2: Use WMI to check for the process (this might fail, so it's our backup)
-            try:
-                import wmi
-                c = wmi.WMI()
-                
-                # Look for python processes running the script
-                for process in c.Win32_Process():
-                    try:
-                        cmd_line = process.CommandLine or ""
-                        # Check if this process is running the SI Op Manager script
-                        if program_path in cmd_line.replace('"', ''):
-                            logger.info(f"Found SI Op Manager running with PID {process.ProcessId}")
-                            return True
-                    except Exception as proc_err:
-                        # Skip any processes we can't query
-                        logger.debug(f"Error checking process: {str(proc_err)}")
-                        continue
-            except Exception as wmi_err:
-                logger.warning(f"WMI check failed: {str(wmi_err)}")
-                # Continue even if WMI fails
-                pass
-                
-            # If we get here, SI Op Manager is probably not running
-            return False
-        except Exception as e:
-            logger.error(f"Error in is_si_op_manager_running: {str(e)}", exc_info=True)
-            # If there's an error in detection, assume it's not running to allow Elysium to start
-            return False
-
-    def thread_finished(self, program_name):
-        """Handle a thread finishing."""
-        self.completed_updates += 1
-        self.progress_bar.setValue(int((self.completed_updates / self.total_updates) * 100))
-        
-        if self.completed_updates == self.total_updates:
-            self.progress_bar.hide()
-            self.status_label.setText("All updates completed!")
-            self.active_threads.clear()
-            self.completed_updates = 0
-
-    def update_status(self, message):
-        """Update the status label with a message."""
-        self.status_label.setText(message)
-        QApplication.processEvents()  # Ensure the UI updates
-
-    def update_program_threaded(self, program_name, git_repo_url):
-        """Update a program using a background thread."""
-        try:
-            # Skip updating SI Op Manager if it's already running
-            if program_name == "SI Op Manager":
-                try:
-                    if self.is_si_op_manager_running():
-                        logger.info(f"Skipping update for {program_name} because it appears to be running")
-                        self.update_status(f"Skipping update for {program_name} (already running)")
-                        self.completed_updates += 1
-                        self.progress_bar.setValue(int((self.completed_updates / self.total_updates) * 100))
-                        return
-                except Exception as e:
-                    logger.error(f"Error checking if SI Op Manager is running: {str(e)}")
-                    # Continue with update attempt
-            
-            # Check if Git is installed before attempting to update
-            if not is_git_installed():
-                logger.warning(f"Cannot update {program_name}: Git is not installed")
-                self.update_status(f"Cannot update {program_name}: Git is not installed")
-                self.completed_updates += 1
-                return
-            
-            # Get the folder name from program info
-            folder_name = self.programs.get(program_name, {}).get('repo_name', program_name)
-            program_directory = os.path.join(os.environ.get('USERPROFILE', ''), 'Documents', 'Elysium', folder_name)
-
-            # Create and start the update thread
-            update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
-            update_thread.progress_signal.connect(self.update_status)
-            update_thread.finished_signal.connect(lambda: self.thread_finished(program_name))
-            
-            self.active_threads.append(update_thread)
-            update_thread.start()
-        except Exception as e:
-            error_msg = f"Error updating {program_name}: {str(e)}"
-            self.update_status(error_msg)
-            logger.error(error_msg, exc_info=True)
-            # Make sure we count this as completed
-            self.completed_updates += 1
-
-    def update_all_programs(self):
-        # Check if Git is installed
-        if not is_git_installed():
-            logger.info("Git not found, prompting user for installation")
-            reply = QMessageBox.question(
-                self, 
-                'Git Required', 
-                "Git is required to update programs but is not installed. Would you like to install it now?",
-                QMessageBox.Yes | QMessageBox.No, 
-                QMessageBox.Yes
-            )
-            
-            if reply == QMessageBox.Yes:
-                self.status_label.setText("Installing Git...")
-                if install_git():
-                    self.status_label.setText("Git installed successfully.")
-                    # Git should now be in PATH for this session
-                else:
-                    QMessageBox.critical(
-                        self, 
-                        'Installation Failed', 
-                        "Failed to install Git. Please install it manually from https://git-scm.com/download/win"
-                    )
-                    return
-            else:
-                QMessageBox.warning(
-                    self, 
-                    'Update Cancelled', 
-                    "Cannot update programs without Git."
-                )
-                return
-        
-        # Prepare for updates
-        self.completed_updates = 0
-        self.total_updates = 0
-        
-        # Get list of programs to update
-        programs_to_update = []
-        for program_name in self.programs:
-            try:
-                # Skip SI Op Manager if it's already running
-                if program_name == "SI Op Manager":
-                    try:
-                        is_running = self.is_si_op_manager_running()
-                        if is_running:
-                            logger.info("Skipping SI Op Manager update during startup (already running)")
-                            continue
-                    except Exception as e:
-                        logger.error(f"Error checking if SI Op Manager is running: {str(e)}")
-                        # Skip update on error to be safe
-                        continue
-                
-                # Add program to the update list
-                programs_to_update.append(program_name)
-            except Exception as e:
-                logger.error(f"Error processing program {program_name}: {str(e)}")
-                # Continue with other programs
-        
-        # Update total count
-        self.total_updates = len(programs_to_update)
-            
-        # If no programs to update, exit early
-        if self.total_updates == 0:
-            logger.info("No programs to update")
-            self.status_label.setText("No programs to update")
-            return
-            
-        # Set up progress bar
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.show()
-        
-        # Launch updates using threads
-        for program_name in programs_to_update:
-            try:
-                self.update_program_threaded(program_name, self.programs[program_name]["repo_url"])
-            except Exception as e:
-                logger.error(f"Error starting update for {program_name}: {str(e)}")
-                # Count as completed to keep the progress bar accurate
-                self.completed_updates += 1
-
-    def update_and_launch_program(self):
-        if self.selected_program:
-            try:
-                program_info = self.programs[self.selected_program]
-                program_name = self.selected_program
-                script_name = program_info["script"]
-                folder_name = program_info.get('repo_name', program_name)
-                git_repo_url = program_info.get('repo_url', '')
-
-                # Get the installation directory using the correct folder name
-                installation_directory = os.path.join(os.environ.get('USERPROFILE', ''), 'Documents', 'Elysium', folder_name)
-                
-                # Check if SI Op Manager is already running (skip update if it is)
-                skip_update = False
-                if program_name == "SI Op Manager":
-                    try:
-                        if self.is_si_op_manager_running():
-                            logger.info(f"SI Op Manager appears to be already running")
-                            self.status_label.setText("SI Op Manager is already running")
-                            skip_update = True
-                    except Exception as e:
-                        logger.error(f"Error checking if SI Op Manager is running: {str(e)}")
-                        # Don't skip update if we can't determine status
-
-                # Check if Git is installed before updating (only if we're not skipping the update)
-                if git_repo_url and not skip_update and not is_git_installed():
-                    logger.info(f"Git not found when launching {program_name}, prompting user for installation")
-                    reply = QMessageBox.question(
-                        self, 
-                        'Git Required', 
-                        "Git is required to update programs but is not installed. Would you like to install it now?",
-                        QMessageBox.Yes | QMessageBox.No, 
-                        QMessageBox.Yes
-                    )
-                    
-                    if reply == QMessageBox.Yes:
-                        self.status_label.setText("Installing Git...")
-                        if install_git():
-                            self.status_label.setText("Git installed successfully.")
-                            # Git should now be in PATH for this session
-                        else:
-                            QMessageBox.critical(
-                                self, 
-                                'Installation Failed', 
-                                "Failed to install Git. Please install it manually from https://git-scm.com/download/win"
-                            )
-                            # Continue without updating
-                    else:
-                        # Continue without updating
-                        pass
-                
-                # Update the program before launching (if Git is available and we're not skipping updates)
-                # Use direct update for single program launch since we want to wait for completion
-                if git_repo_url and not skip_update and is_git_installed():
-                    try:
-                        # Set up update progress tracking
-                        self.completed_updates = 0
-                        self.total_updates = 1
-                        self.progress_bar.setMaximum(100)
-                        self.progress_bar.setValue(0)
-                        self.progress_bar.show()
-                        
-                        # Update directly (not threaded)
-                        self.update_program_direct(program_name, git_repo_url)
-                        
-                        # Hide progress bar when done
-                        self.progress_bar.hide()
-                    except Exception as e:
-                        logger.error(f"Error updating {program_name}: {str(e)}")
-                        # Continue to launching the program even if update fails
-
-                # Check for requirements.txt and install dependencies if needed
-                requirements_file = os.path.join(installation_directory, 'requirements.txt')
-                if os.path.exists(requirements_file) and not skip_update:
-                    self.status_label.setText(f"Checking dependencies for {program_name}...")
-                    try:
-                        self.check_dependencies_before_launch(requirements_file)
-                    except Exception as e:
-                        logger.error(f"Error checking dependencies: {str(e)}")
-                        # Continue to launching the program even if dependency check fails
-
-                # Launch the program
-                program_path = os.path.join(installation_directory, script_name)
-                if os.path.exists(program_path):
-                    try:
-                        logger.info(f"Launching {program_name} from {program_path}")
-                        self.status_label.setText(f"Launching {program_name}...")
-                        
-                        # Execute the program using Python
-                        python_executable = sys.executable
-                        
-                        # Pass any additional arguments if specified in program_info
-                        args = program_info.get('args', [])
-                        
-                        # Create a custom environment to pass to the subprocess
-                        env = os.environ.copy()
-                        
-                        # Define the command to run
-                        cmd = [python_executable, program_path] + args
-                        
-                        # Launch the program
-                        if platform.system() == 'Windows':
-                            # Hide the console window for all Windows programs
-                            import subprocess
-                            startupinfo = subprocess.STARTUPINFO()
-                            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                            startupinfo.wShowWindow = 0  # SW_HIDE
-                            subprocess.Popen(cmd, env=env, startupinfo=startupinfo)
-                        else:
-                            # For non-Windows platforms (e.g., Linux, macOS)
-                            subprocess.Popen(cmd, env=env)
-                        
-                        logger.info(f"Successfully launched {program_name}")
-                        self.status_label.setText(f"Launched {program_name}")
-                    except Exception as e:
-                        error_msg = f"Failed to launch {program_name}: {str(e)}"
-                        logger.error(error_msg)
-                        self.status_label.setText(error_msg)
-                        QMessageBox.critical(self, 'Launch Failed', error_msg)
-                else:
-                    error_msg = f"Cannot find {program_name} at {program_path}"
-                    logger.error(error_msg)
-                    self.status_label.setText(error_msg)
-                    QMessageBox.critical(self, 'Program Not Found', error_msg)
-            except Exception as e:
-                error_msg = f"Error launching {self.selected_program}: {str(e)}"
-                logger.error(error_msg)
-                self.status_label.setText(error_msg)
-                QMessageBox.critical(self, 'Error', error_msg)
-        else:
-            QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
 
 def get_user_first_name():
     """Get the user's first name using multiple methods."""
