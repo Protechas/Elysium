@@ -1162,7 +1162,6 @@ class ProgramUpdater(QWidget):
                     subprocess.Popen(
                         ['python', program_path],
                         env=launch_env,
-                        cwd=installation_directory,
                         creationflags=subprocess.CREATE_NO_WINDOW
                     )
                 else:
