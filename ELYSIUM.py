@@ -1152,6 +1152,8 @@ class ProgramUpdater(QWidget):
                 if not os.path.exists(program_path):
                     raise FileNotFoundError(f"Could not find {script_name} in {installation_directory}")
 
+                logger.info(f"Preparing to launch {program_name} from {program_path}")
+                
                 # Create a clean environment for the process
                 # Only copy necessary environment variables, don't pass the entire environment
                 launch_env = {
@@ -1162,47 +1164,138 @@ class ProgramUpdater(QWidget):
                     'LAUNCHER_STYLE': self.dark_style  # Pass the style information
                 }
                 
-                # Get the path to pythonw.exe from the same directory as the current Python executable
-                python_dir = os.path.dirname(sys.executable)
-                pythonw_path = os.path.join(python_dir, 'pythonw.exe')
+                logger.info(f"Using launch environment: {launch_env}")
                 
-                # Fallback if pythonw.exe is not found
-                if not os.path.exists(pythonw_path):
-                    logger.warning(f"pythonw.exe not found at {pythonw_path}, falling back to regular python")
-                    pythonw_path = sys.executable
-                
-                # Use a different approach based on the program being launched
-                if program_name == "SI Op Manager":
-                    # Special handling for SI Op Manager
-                    # Use a simple, direct approach that's known to work
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    startupinfo.wShowWindow = 0  # SW_HIDE
+                # Try a completely different approach - use os.startfile which is simpler and more reliable on Windows
+                try:
+                    logger.info(f"Attempting to launch {program_name} using os.startfile")
+                    # Change directory to the installation directory first
+                    original_dir = os.getcwd()
+                    os.chdir(installation_directory)
                     
-                    # Launch the program directly
-                    subprocess.Popen(
-                        [sys.executable, program_path],
-                        env=launch_env,
-                        cwd=installation_directory,
-                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-                        startupinfo=startupinfo,
-                        shell=False
-                    )
-                else:
-                    # Simple approach for other programs
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+                    # Use startfile with the script path - this uses the default Windows file associations
+                    if program_name == "SI Op Manager":
+                        logger.info("Launching SI Op Manager with special handling")
+                        # For SI Op Manager, use a more direct approach
+                        startupinfo = subprocess.STARTUPINFO()
+                        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        startupinfo.wShowWindow = 0  # SW_HIDE
+                        
+                        # Try launching with Python directly for SI Op Manager
+                        proc = subprocess.Popen(
+                            [sys.executable, program_path],
+                            cwd=installation_directory,
+                            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                            startupinfo=startupinfo,
+                            env=launch_env,
+                            shell=False
+                        )
+                        logger.info(f"SI Op Manager launched with PID: {proc.pid if proc else 'unknown'}")
+                    else:
+                        logger.info(f"Launching {program_name} with os.startfile")
+                        os.startfile(program_path)
                     
-                    # Direct launching with regular Python interpreter
-                    subprocess.Popen(
-                        [sys.executable, program_path],
-                        env=launch_env,
-                        cwd=installation_directory,
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                        startupinfo=startupinfo,
-                        shell=False
-                    )
+                    # Restore the original directory
+                    os.chdir(original_dir)
+                    logger.info(f"Successfully launched {program_name}")
+                except Exception as launch_error:
+                    logger.error(f"Error using startfile approach: {str(launch_error)}")
+                    # Fall back to the original approach if startfile fails
+                    logger.info(f"Falling back to subprocess approach for {program_name}")
+                    try:
+                        if program_name == "SI Op Manager":
+                            # Special handling for SI Op Manager
+                            startupinfo = subprocess.STARTUPINFO()
+                            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                            startupinfo.wShowWindow = 0  # SW_HIDE
+                            
+                            # Launch directly without pythonw
+                            proc = subprocess.Popen(
+                                [sys.executable, program_path],
+                                env=launch_env,
+                                cwd=installation_directory,
+                                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                                startupinfo=startupinfo,
+                                shell=False,
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.PIPE
+                            )
+                            logger.info(f"Subprocess launch SI Op Manager with PID: {proc.pid if proc else 'unknown'}")
+                        else:
+                            # Simple approach for other programs - try with shell=True which might help
+                            startupinfo = subprocess.STARTUPINFO()
+                            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                            startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+                            
+                            proc = subprocess.Popen(
+                                f'"{sys.executable}" "{program_path}"',
+                                env=launch_env,
+                                cwd=installation_directory,
+                                creationflags=subprocess.CREATE_NO_WINDOW,
+                                startupinfo=startupinfo,
+                                shell=True,
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.PIPE
+                            )
+                            logger.info(f"Shell=True launch for {program_name} with PID: {proc.pid if proc else 'unknown'}")
+                            
+                            # Try to read any output to see if there are errors
+                            out, err = proc.communicate(timeout=1)
+                            if out:
+                                logger.info(f"Process output: {out.decode('utf-8', errors='replace')}")
+                            if err:
+                                logger.error(f"Process error: {err.decode('utf-8', errors='replace')}")
+                    except Exception as e:
+                        logger.error(f"Subprocess fallback also failed: {str(e)}")
+                        # Create a batch file to launch the script - reliable on Windows
+                        try:
+                            logger.info("Creating batch file launcher as a fallback")
+                            # Create a temp batch file
+                            batch_file = os.path.join(tempfile.gettempdir(), f"launch_{int(time.time())}.bat")
+                            with open(batch_file, 'w') as f:
+                                # Write batch file contents with proper escaping and path handling
+                                f.write('@echo off\n')
+                                f.write(f'cd /d "{installation_directory}"\n')
+                                
+                                if program_name == "SI Op Manager":
+                                    # Use start /b to avoid opening a new console window
+                                    f.write(f'start /b "" "{sys.executable}" "{program_path}"\n')
+                                else:
+                                    # Standard start for other apps
+                                    f.write(f'start "" "{sys.executable}" "{program_path}"\n')
+                                
+                                # Self-delete after execution
+                                f.write('(goto) 2>nul & del "%~f0"\n')
+                            
+                            logger.info(f"Batch file created at {batch_file}")
+                            
+                            # Run the batch file
+                            batch_startupinfo = subprocess.STARTUPINFO()
+                            batch_startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                            batch_startupinfo.wShowWindow = 0  # SW_HIDE
+                            
+                            # Execute the batch file
+                            subprocess.Popen(
+                                batch_file,
+                                creationflags=subprocess.CREATE_NO_WINDOW,
+                                startupinfo=batch_startupinfo,
+                                shell=True
+                            )
+                            
+                            logger.info(f"Batch file approach used to launch {program_name}")
+                        except Exception as batch_error:
+                            logger.error(f"Batch file approach also failed: {str(batch_error)}")
+                            # Last resort - try launching a CMD window that runs the script
+                            try:
+                                logger.info("Attempting last resort cmd.exe approach")
+                                cmd_proc = subprocess.Popen(
+                                    f'start cmd.exe /k "cd /d "{installation_directory}" && python "{program_path}""',
+                                    shell=True
+                                )
+                                logger.info(f"CMD fallback PID: {cmd_proc.pid if cmd_proc else 'unknown'}")
+                            except Exception as cmd_error:
+                                logger.error(f"CMD fallback also failed: {str(cmd_error)}")
+                                raise  # Re-raise the original exception
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name} for {self.user_first_name}...")
 
