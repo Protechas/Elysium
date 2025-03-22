@@ -1019,6 +1019,14 @@ class ProgramUpdater(QWidget):
  
     def update_program_direct(self, program_name, git_repo_url):
         try:
+            # Skip updating SI Op Manager if it's already running
+            if program_name == "SI Op Manager" and self.is_si_op_manager_running():
+                logger.info(f"Skipping update for {program_name} because it appears to be running")
+                self.update_status(f"Skipping update for {program_name} (already running)")
+                self.completed_updates += 1
+                self.progress_bar.setValue(int((self.completed_updates / self.total_updates) * 100))
+                return
+            
             # Check if Git is installed before attempting to update
             if not is_git_installed():
                 logger.warning(f"Cannot update {program_name}: Git is not installed")
@@ -1089,12 +1097,29 @@ class ProgramUpdater(QWidget):
         
         # Continue with program updates as before
         self.completed_updates = 0
-        self.total_updates = len(self.programs)
+        self.total_updates = 0
+        
+        # Count the total updates, skipping SI Op Manager if it's already running
+        for program_name in self.programs:
+            if program_name == "SI Op Manager" and self.is_si_op_manager_running():
+                logger.info("Skipping SI Op Manager update during startup (already running)")
+                continue
+            self.total_updates += 1
+            
+        # If no programs to update, exit early
+        if self.total_updates == 0:
+            logger.info("No programs to update")
+            self.status_label.setText("No programs to update")
+            return
+            
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.show()
         
         for program_name, info in self.programs.items():
+            # Skip SI Op Manager if it's already running
+            if program_name == "SI Op Manager" and self.is_si_op_manager_running():
+                continue
             self.update_program_direct(program_name, info["repo_url"])
 
     def update_and_launch_program(self):
@@ -1106,8 +1131,18 @@ class ProgramUpdater(QWidget):
                 folder_name = program_info.get('repo_name', program_name)
                 git_repo_url = program_info.get('repo_url', '')
 
-                # Check if Git is installed before updating
-                if git_repo_url and not is_git_installed():
+                # Get the installation directory using the correct folder name
+                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
+                
+                # Check if SI Op Manager is already running (skip update if it is)
+                skip_update = False
+                if program_name == "SI Op Manager" and self.is_si_op_manager_running():
+                    logger.info(f"SI Op Manager appears to be already running")
+                    self.status_label.setText("SI Op Manager is already running")
+                    skip_update = True
+
+                # Check if Git is installed before updating (only if we're not skipping the update)
+                if git_repo_url and not skip_update and not is_git_installed():
                     logger.info(f"Git not found when launching {program_name}, prompting user for installation")
                     reply = QMessageBox.question(
                         self, 
@@ -1133,16 +1168,13 @@ class ProgramUpdater(QWidget):
                         # Continue without updating
                         pass
                 
-                # Update the program before launching (if Git is available)
-                if git_repo_url and is_git_installed():
+                # Update the program before launching (if Git is available and we're not skipping updates)
+                if git_repo_url and not skip_update and is_git_installed():
                     self.update_program_direct(program_name, git_repo_url)
-
-                # Get the installation directory using the correct folder name
-                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
 
                 # Check for requirements.txt and install dependencies if needed
                 requirements_file = os.path.join(installation_directory, 'requirements.txt')
-                if os.path.exists(requirements_file):
+                if os.path.exists(requirements_file) and not skip_update:
                     self.status_label.setText(f"Checking dependencies for {program_name}...")
                     self.check_dependencies_before_launch(requirements_file)
 
@@ -1561,6 +1593,58 @@ class ProgramUpdater(QWidget):
             # Restart the application
             python = sys.executable
             os.execl(python, python, *sys.argv)
+
+    def is_si_op_manager_running(self):
+        """Check if SI Op Manager is already running."""
+        try:
+            # Method 1: Try to check if the main.py process is running using WMI
+            logger.info("Checking if SI Op Manager is already running")
+            c = wmi.WMI()
+            
+            # Get the correct repo name and script name for SI Op Manager
+            info = self.programs["SI Op Manager"]
+            script_name = info["script"]
+            folder_name = info.get('repo_name', "SI Op Manager")
+            
+            # Path to the script
+            program_path = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name, script_name)
+            
+            # Normalize path for comparison
+            program_path = os.path.normpath(program_path)
+            
+            # Look for python processes running the script
+            for process in c.Win32_Process():
+                try:
+                    cmd_line = process.CommandLine or ""
+                    # Check if this process is running the SI Op Manager script
+                    if program_path in cmd_line.replace('"', ''):
+                        logger.info(f"Found SI Op Manager running with PID {process.ProcessId}")
+                        return True
+                except Exception:
+                    # Skip any processes we can't query
+                    continue
+            
+            # Method 2: Try the file lock test as a backup
+            installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
+            lock_test_file = os.path.join(installation_directory, '.update_lock_test')
+            try:
+                # Try to create a temporary file in the directory to check if it's locked
+                with open(lock_test_file, 'w') as f:
+                    f.write('test')
+                os.remove(lock_test_file)
+                # We could write to the directory, so it's not locked
+                return False
+            except (IOError, PermissionError):
+                # If we can't write to the directory, it's likely locked by a running process
+                logger.info("SI Op Manager appears to be running (directory is locked)")
+                return True
+                
+            # If we get here, SI Op Manager is probably not running
+            return False
+        except Exception as e:
+            logger.error(f"Error checking if SI Op Manager is running: {str(e)}", exc_info=True)
+            # If there's an error in detection, assume it's not running to be safe
+            return False
 
 def get_user_first_name():
     """Get the user's first name using multiple methods."""
