@@ -3,7 +3,6 @@ import logging
 import datetime
 import time
 import sys
-import platform
 
 # Set up basic logging first - MUST BE BEFORE ANY OTHER IMPORTS OR OPERATIONS
 def setup_logging():
@@ -1158,12 +1157,16 @@ class ProgramUpdater(QWidget):
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
                 launch_env['PYTHONPATH'] = installation_directory
 
-                # Launch program with hidden command window
+                # Launch all programs including SI Op Manager in exactly the same way
+                import platform
                 if platform.system() == 'Windows':
+                    import subprocess
                     # Hide the console window for all Windows programs
                     startupinfo = subprocess.STARTUPINFO()
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                     startupinfo.wShowWindow = 0  # SW_HIDE
+                    
+                    # Launch the program with hidden console window
                     subprocess.Popen(
                         [sys.executable, program_path],
                         env=launch_env,
@@ -1171,7 +1174,7 @@ class ProgramUpdater(QWidget):
                         startupinfo=startupinfo
                     )
                 else:
-                    # For non-Windows platforms (e.g., Linux, macOS)
+                    # For non-Windows platforms
                     subprocess.Popen(
                         [sys.executable, program_path],
                         env=launch_env,
