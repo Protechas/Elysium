@@ -1159,28 +1159,41 @@ class ProgramUpdater(QWidget):
 
                 # Special handling for SI Op Manager
                 if program_name == "SI Op Manager":
-                    logger.info(f"Launching SI Op Manager with special independent process handling")
+                    logger.info(f"Launching SI Op Manager with fully detached process")
                     
-                    # Set up startup info to hide the window
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    startupinfo.wShowWindow = 0  # SW_HIDE
-                    
-                    # Create a completely detached process that will continue to run even when Elysium closes
-                    # The combination of these flags creates a truly independent process
-                    proc = subprocess.Popen(
-                        [sys.executable, program_path],
-                        env=launch_env,
-                        cwd=installation_directory,
-                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-                        startupinfo=startupinfo,
-                        shell=False,
-                        close_fds=True
-                    )
-                    logger.info(f"SI Op Manager launched with PID: {proc.pid}")
+                    try:
+                        # Use the exact same Python executable that's running Elysium
+                        python_exe = sys.executable
+                        
+                        # Create a completely detached process with no window
+                        startupinfo = subprocess.STARTUPINFO()
+                        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        startupinfo.wShowWindow = 1  # SW_SHOWNORMAL - Display window normally
+                        
+                        # This specific combination of flags creates a completely independent process
+                        # DETACHED_PROCESS: Launches process without a console window
+                        # CREATE_NEW_PROCESS_GROUP: Creates a new process group
+                        creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                        
+                        # Launch the program directly with sys.executable
+                        # We don't use 'close_fds=True' as it can make the child process orphaned in some cases
+                        proc = subprocess.Popen(
+                            [python_exe, program_path],
+                            env=launch_env,
+                            cwd=installation_directory,
+                            creationflags=creation_flags,
+                            startupinfo=startupinfo
+                        )
+                        
+                        logger.info(f"SI Op Manager launched with PID: {proc.pid}")
+                        
+                    except Exception as e:
+                        error_msg = f"Error launching SI Op Manager: {str(e)}"
+                        logger.error(error_msg)
+                        QMessageBox.warning(self, 'Launch Error', error_msg)
                 else:
                     logger.info(f"Launching {program_name}")
-                    # Improved launch method for all other programs
+                    # Standard launch method for all other programs
                     startupinfo = subprocess.STARTUPINFO()
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                     startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
