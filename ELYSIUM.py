@@ -468,14 +468,14 @@ class GitUpdateThread(QThread):
     """Thread for updating a Git repository in the background."""
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
-    
+
     def __init__(self, program_name, repo_url, repo_dir):
         super().__init__()
         self.program_name = program_name
         self.repo_url = repo_url
         self.repo_dir = repo_dir
         self.lock_file = os.path.join(self.repo_dir, '.update_lock')
-    
+
     def run(self):
         """Run the update process in a separate thread."""
         try:
@@ -647,10 +647,10 @@ class ProgramUpdater(QWidget):
         self.base_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium')
         if not os.path.exists(self.base_dir):
             os.makedirs(self.base_dir)
-
+        
         self.desktop_icon_url = "https://raw.githubusercontent.com/Protechas/Elysium/main/ELYSIUM_icon.ico"
         self.desktop_icon_path = self.download_icon(self.desktop_icon_url)
-        
+
         self.programs = {
             "DFR": {
                 "icon_url": "https://raw.githubusercontent.com/Protechas/DFR/main/DFR.ico", 
@@ -915,7 +915,6 @@ class ProgramUpdater(QWidget):
             if os.path.exists(lock_file):
                 logger.warning(f"Update lock file exists for {program_name}, skipping update")
                 self.status_label.setText(f"Skipping update for {program_name} (locked)")
-                self.completed_updates += 1
                 return
             
             # Create lock file
@@ -978,7 +977,7 @@ class ProgramUpdater(QWidget):
                     
                     # Clean untracked files
                     repo.git.clean('-fd')
-                    
+                
                 logger.info(f"Successfully updated {program_name}")
                 self.status_label.setText(f"Updated {program_name}")
             except Exception as e:
@@ -1013,13 +1012,13 @@ class ProgramUpdater(QWidget):
             self.status_label.setText(f"Error updating {program_name}")
             # Make sure we mark as completed for progress bar
             self.completed_updates += 1
-
+            
     def check_dependencies_before_launch(self, requirements_file):
         """Check and install any missing dependencies from requirements.txt."""
         try:
             logger.info(f"Checking dependencies from {requirements_file}")
             self.status_label.setText(f"Checking dependencies...")
-
+            
             # Read requirements file
             with open(requirements_file, 'r') as f:
                 required_packages = []
@@ -1034,7 +1033,7 @@ class ProgramUpdater(QWidget):
             if not required_packages:
                 logger.info("No dependencies found in requirements file.")
                 return
-
+                
             # Install dependencies using pip
             try:
                 logger.info(f"Installing dependencies: {', '.join(required_packages)}")
@@ -1056,7 +1055,7 @@ class ProgramUpdater(QWidget):
                     logger.info(f"Pip install output: {stdout}")
                 if stderr:
                     logger.warning(f"Pip install errors: {stderr}")
-                
+                    
                 if process.returncode == 0:
                     logger.info("Dependencies installed successfully")
                     self.status_label.setText("Dependencies installed")
@@ -1119,14 +1118,14 @@ class ProgramUpdater(QWidget):
                 if len(parts) >= 2:  # Should have at least timestamp and PID
                     date_str = parts[0]
                     pid_str = parts[1] if len(parts) > 1 else "unknown"
-                    try:
-                        # Try to parse and format the date
-                        date_obj = datetime.datetime.strptime(date_str, "%Y%m%d%H%M%S")
-                        formatted_date = date_obj.strftime("%Y-%m-%d %H:%M:%S")
-                        log_selector.addItem(f"{formatted_date} (PID: {pid_str})", log_file)
-                    except:
-                        # If parsing fails, just use the original string
-                        log_selector.addItem(f"{date_str} (PID: {pid_str})", log_file)
+                try:
+                    # Try to parse and format the date
+                    date_obj = datetime.datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                    formatted_date = date_obj.strftime("%Y-%m-%d %H:%M:%S")
+                    log_selector.addItem(f"{formatted_date} (PID: {pid_str})", log_file)
+                except:
+                    # If parsing fails, just use the original string
+                    log_selector.addItem(f"{date_str} (PID: {pid_str})", log_file)
                 else:
                     # Fallback for any files with the old naming convention
                     log_selector.addItem(log_file, log_file)
@@ -1575,12 +1574,15 @@ class ProgramUpdater(QWidget):
                         cmd = [python_executable, program_path] + args
                         
                         # Launch the program
-                        if program_name == "SI Op Manager" and platform.system() == 'Windows':
-                            # For SI Op Manager on Windows, run with CREATE_NEW_CONSOLE
+                        if platform.system() == 'Windows':
+                            # Hide the console window for all Windows programs
                             import subprocess
-                            subprocess.Popen(cmd, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                            startupinfo = subprocess.STARTUPINFO()
+                            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                            startupinfo.wShowWindow = 0  # SW_HIDE
+                            subprocess.Popen(cmd, env=env, startupinfo=startupinfo)
                         else:
-                            # For other programs
+                            # For non-Windows platforms (e.g., Linux, macOS)
                             subprocess.Popen(cmd, env=env)
                         
                         logger.info(f"Successfully launched {program_name}")
