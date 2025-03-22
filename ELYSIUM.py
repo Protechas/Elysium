@@ -28,10 +28,11 @@ def setup_logging():
         
         for attempt in range(max_retries):
             try:
-                # Generate unique log filename using timestamp and random suffix
+                # Generate unique log filename using timestamp, process ID, and random suffix
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                pid = os.getpid()  # Get the current process ID
                 random_suffix = str(int(time.time() * 1000) % 1000)  # Use milliseconds as suffix
-                log_file = os.path.join(log_dir, f'dependency_log_{timestamp}_{random_suffix}.log')
+                log_file = os.path.join(log_dir, f'dependency_log_{timestamp}_{pid}_{random_suffix}.log')
                 
                 # Try to open the file to test if it's accessible
                 with open(log_file, 'a') as f:
@@ -1374,16 +1375,22 @@ class ProgramUpdater(QWidget):
             # Create a combo box for selecting log files
             log_selector = QComboBox()
             for log_file in log_files:
-                # Format the date from the filename for better readability
-                date_str = log_file.replace('dependency_log_', '').replace('.log', '')
-                try:
-                    # Try to parse and format the date
-                    date_obj = datetime.datetime.strptime(date_str, "%Y%m%d_%H%M%S")
-                    formatted_date = date_obj.strftime("%Y-%m-%d %H:%M:%S")
-                    log_selector.addItem(f"{formatted_date}", log_file)
-                except:
-                    # If parsing fails, just use the original string
-                    log_selector.addItem(date_str, log_file)
+                # Extract timestamp from the filename - now with the PID part
+                parts = log_file.replace('dependency_log_', '').replace('.log', '').split('_')
+                if len(parts) >= 2:  # Should have at least timestamp and PID
+                    date_str = parts[0]
+                    pid_str = parts[1] if len(parts) > 1 else "unknown"
+                    try:
+                        # Try to parse and format the date
+                        date_obj = datetime.datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                        formatted_date = date_obj.strftime("%Y-%m-%d %H:%M:%S")
+                        log_selector.addItem(f"{formatted_date} (PID: {pid_str})", log_file)
+                    except:
+                        # If parsing fails, just use the original string
+                        log_selector.addItem(f"{date_str} (PID: {pid_str})", log_file)
+                else:
+                    # Fallback for any files with the old naming convention
+                    log_selector.addItem(log_file, log_file)
             
             layout.addWidget(QLabel("Select log file:"))
             layout.addWidget(log_selector)
