@@ -1174,37 +1174,34 @@ class ProgramUpdater(QWidget):
                 # Use a different approach based on the program being launched
                 if program_name == "SI Op Manager":
                     # Special handling for SI Op Manager
-                    # Use a direct subprocess approach with pythonw to hide console window
-                    si_startupinfo = subprocess.STARTUPINFO()
-                    si_startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    si_startupinfo.wShowWindow = 0  # SW_HIDE
+                    # Use a simple, direct approach that's known to work
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = 0  # SW_HIDE
                     
-                    # Launch using pythonw.exe (no console window) with special flags to ensure detachment
+                    # Launch the program directly
                     subprocess.Popen(
-                        [pythonw_path, program_path],
+                        [sys.executable, program_path],
                         env=launch_env,
                         cwd=installation_directory,
                         creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-                        startupinfo=si_startupinfo,
-                        shell=False,
-                        close_fds=True
+                        startupinfo=startupinfo,
+                        shell=False
                     )
                 else:
-                    # Standard launch method for all other programs
-                    # Improved to use proper environment variables and window handling
-                    std_startupinfo = subprocess.STARTUPINFO()
-                    std_startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    std_startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+                    # Simple approach for other programs
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
                     
-                    # Launch with pythonw to avoid command prompt flash on Windows
+                    # Direct launching with regular Python interpreter
                     subprocess.Popen(
-                        [pythonw_path, program_path],
+                        [sys.executable, program_path],
                         env=launch_env,
                         cwd=installation_directory,
                         creationflags=subprocess.CREATE_NO_WINDOW,
-                        startupinfo=std_startupinfo,
-                        shell=False,
-                        close_fds=True
+                        startupinfo=startupinfo,
+                        shell=False
                     )
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name} for {self.user_first_name}...")
