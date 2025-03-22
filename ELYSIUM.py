@@ -1162,42 +1162,48 @@ class ProgramUpdater(QWidget):
                     'LAUNCHER_STYLE': self.dark_style  # Pass the style information
                 }
                 
-                # Use a different approach for launching with detachment
+                # Get the path to pythonw.exe from the same directory as the current Python executable
+                python_dir = os.path.dirname(sys.executable)
+                pythonw_path = os.path.join(python_dir, 'pythonw.exe')
+                
+                # Fallback if pythonw.exe is not found
+                if not os.path.exists(pythonw_path):
+                    logger.warning(f"pythonw.exe not found at {pythonw_path}, falling back to regular python")
+                    pythonw_path = sys.executable
+                
+                # Use a different approach based on the program being launched
                 if program_name == "SI Op Manager":
-                    # Create a VBScript file to launch the program completely invisibly
-                    # VBScript is more reliable for completely hidden execution on Windows
-                    vbs_file_path = os.path.join(tempfile.gettempdir(), f"launch_{int(time.time())}.vbs")
-                    with open(vbs_file_path, 'w') as vbs_file:
-                        vbs_file.write('Set WshShell = CreateObject("WScript.Shell")\n')
-                        vbs_file.write(f'WshShell.CurrentDirectory = "{installation_directory.replace("\\", "\\\\")}"\n')
-                        vbs_file.write('Set oShell = CreateObject("Shell.Application")\n')
-                        # Launch process hidden with pythonw to prevent console window
-                        vbs_file.write(f'oShell.ShellExecute "pythonw.exe", """{program_path}""", "{installation_directory.replace("\\", "\\\\")}", "open", 0\n')
-                        # Self-delete after a short delay
-                        vbs_file.write('WScript.Sleep 1000\n')  # Wait 1 second
-                        vbs_file.write(f'Set fso = CreateObject("Scripting.FileSystemObject")\n')
-                        vbs_file.write(f'fso.DeleteFile WScript.ScriptFullName\n')
+                    # Special handling for SI Op Manager
+                    # Use a direct subprocess approach with pythonw to hide console window
+                    si_startupinfo = subprocess.STARTUPINFO()
+                    si_startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    si_startupinfo.wShowWindow = 0  # SW_HIDE
                     
-                    # Launch the VBScript invisibly
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    startupinfo.wShowWindow = 0  # SW_HIDE
-                    
-                    # Run the VBScript
+                    # Launch using pythonw.exe (no console window) with special flags to ensure detachment
                     subprocess.Popen(
-                        ['wscript.exe', vbs_file_path], 
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                        startupinfo=startupinfo,
-                        close_fds=True,
-                        shell=False
+                        [pythonw_path, program_path],
+                        env=launch_env,
+                        cwd=installation_directory,
+                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                        startupinfo=si_startupinfo,
+                        shell=False,
+                        close_fds=True
                     )
                 else:
-                    # Original launch method for all other programs
+                    # Standard launch method for all other programs
+                    # Improved to use proper environment variables and window handling
+                    std_startupinfo = subprocess.STARTUPINFO()
+                    std_startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    std_startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+                    
+                    # Launch with pythonw to avoid command prompt flash on Windows
                     subprocess.Popen(
-                        ['python', program_path],
+                        [pythonw_path, program_path],
                         env=launch_env,
                         cwd=installation_directory,
                         creationflags=subprocess.CREATE_NO_WINDOW,
+                        startupinfo=std_startupinfo,
+                        shell=False,
                         close_fds=True
                     )
 
