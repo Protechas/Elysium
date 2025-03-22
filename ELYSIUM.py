@@ -1152,25 +1152,42 @@ class ProgramUpdater(QWidget):
                 if not os.path.exists(program_path):
                     raise FileNotFoundError(f"Could not find {script_name} in {installation_directory}")
 
-                # Pass the dark mode style sheet to the launched program
-                launch_env = os.environ.copy()
-                launch_env['LAUNCHER_STYLE'] = self.dark_style
-                launch_env['PYTHONPATH'] = installation_directory
-
-                # Special handling for SI Op Manager
+                # Create a clean environment for the process
+                # Only copy necessary environment variables, don't pass the entire environment
+                launch_env = {
+                    'PATH': os.environ.get('PATH', ''),
+                    'TEMP': os.environ.get('TEMP', ''),
+                    'TMP': os.environ.get('TMP', ''),
+                    'PYTHONPATH': installation_directory,  # Set Python path to the app directory
+                    'LAUNCHER_STYLE': self.dark_style  # Pass the style information
+                }
+                
+                # Use a different approach for launching with detachment
                 if program_name == "SI Op Manager":
+                    # Create a batch file to launch the program independently
+                    batch_file_path = os.path.join(tempfile.gettempdir(), f"launch_{int(time.time())}.bat")
+                    with open(batch_file_path, 'w') as batch_file:
+                        batch_file.write('@echo off\n')
+                        batch_file.write(f'cd /d "{installation_directory}"\n')
+                        batch_file.write(f'start "" /b python "{program_path}"\n')
+                        # Add self-delete at the end
+                        batch_file.write('(goto) 2>nul & del "%~f0"\n')
+                    
+                    # Run the batch file to launch the program and detach it from this process
                     subprocess.Popen(
-                        ['python', program_path],
-                        env=launch_env,
-                        cwd=installation_directory,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        ['cmd', '/c', batch_file_path],
+                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                        close_fds=True,
+                        shell=True
                     )
                 else:
                     # Original launch method for all other programs
                     subprocess.Popen(
                         ['python', program_path],
                         env=launch_env,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        cwd=installation_directory,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        close_fds=True
                     )
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name} for {self.user_first_name}...")
