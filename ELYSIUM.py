@@ -3,6 +3,7 @@ import logging
 import datetime
 import time
 import sys
+import platform
 
 # Set up basic logging first - MUST BE BEFORE ANY OTHER IMPORTS OR OPERATIONS
 def setup_logging():
@@ -1157,20 +1158,24 @@ class ProgramUpdater(QWidget):
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
                 launch_env['PYTHONPATH'] = installation_directory
 
-                # Special handling for SI Op Manager
-                if program_name == "SI Op Manager":
+                # Launch program with hidden command window
+                if platform.system() == 'Windows':
+                    # Hide the console window for all Windows programs
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = 0  # SW_HIDE
                     subprocess.Popen(
-                        ['python', program_path],
+                        [sys.executable, program_path],
                         env=launch_env,
                         cwd=installation_directory,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        startupinfo=startupinfo
                     )
                 else:
-                    # Original launch method for all other programs
+                    # For non-Windows platforms (e.g., Linux, macOS)
                     subprocess.Popen(
-                        ['python', program_path],
+                        [sys.executable, program_path],
                         env=launch_env,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        cwd=installation_directory
                     )
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name} for {self.user_first_name}...")
