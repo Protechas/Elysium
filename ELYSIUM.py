@@ -1164,21 +1164,32 @@ class ProgramUpdater(QWidget):
                 
                 # Use a different approach for launching with detachment
                 if program_name == "SI Op Manager":
-                    # Create a batch file to launch the program independently
-                    batch_file_path = os.path.join(tempfile.gettempdir(), f"launch_{int(time.time())}.bat")
-                    with open(batch_file_path, 'w') as batch_file:
-                        batch_file.write('@echo off\n')
-                        batch_file.write(f'cd /d "{installation_directory}"\n')
-                        batch_file.write(f'start "" /b python "{program_path}"\n')
-                        # Add self-delete at the end
-                        batch_file.write('(goto) 2>nul & del "%~f0"\n')
+                    # Create a VBScript file to launch the program completely invisibly
+                    # VBScript is more reliable for completely hidden execution on Windows
+                    vbs_file_path = os.path.join(tempfile.gettempdir(), f"launch_{int(time.time())}.vbs")
+                    with open(vbs_file_path, 'w') as vbs_file:
+                        vbs_file.write('Set WshShell = CreateObject("WScript.Shell")\n')
+                        vbs_file.write(f'WshShell.CurrentDirectory = "{installation_directory.replace("\\", "\\\\")}"\n')
+                        vbs_file.write('Set oShell = CreateObject("Shell.Application")\n')
+                        # Launch process hidden with pythonw to prevent console window
+                        vbs_file.write(f'oShell.ShellExecute "pythonw.exe", """{program_path}""", "{installation_directory.replace("\\", "\\\\")}", "open", 0\n')
+                        # Self-delete after a short delay
+                        vbs_file.write('WScript.Sleep 1000\n')  # Wait 1 second
+                        vbs_file.write(f'Set fso = CreateObject("Scripting.FileSystemObject")\n')
+                        vbs_file.write(f'fso.DeleteFile WScript.ScriptFullName\n')
                     
-                    # Run the batch file to launch the program and detach it from this process
+                    # Launch the VBScript invisibly
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = 0  # SW_HIDE
+                    
+                    # Run the VBScript
                     subprocess.Popen(
-                        ['cmd', '/c', batch_file_path],
-                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                        ['wscript.exe', vbs_file_path], 
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        startupinfo=startupinfo,
                         close_fds=True,
-                        shell=True
+                        shell=False
                     )
                 else:
                     # Original launch method for all other programs
