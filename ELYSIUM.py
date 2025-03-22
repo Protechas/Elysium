@@ -1157,28 +1157,20 @@ class ProgramUpdater(QWidget):
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
                 launch_env['PYTHONPATH'] = installation_directory
 
-                # Launch all programs including SI Op Manager in exactly the same way
-                import platform
-                if platform.system() == 'Windows':
-                    import subprocess
-                    # Hide the console window for all Windows programs
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    startupinfo.wShowWindow = 0  # SW_HIDE
-                    
-                    # Launch the program with hidden console window
+                # Special handling for SI Op Manager
+                if program_name == "SI Op Manager":
                     subprocess.Popen(
-                        [sys.executable, program_path],
+                        ['python', program_path],
                         env=launch_env,
                         cwd=installation_directory,
-                        startupinfo=startupinfo
+                        creationflags=subprocess.CREATE_NO_WINDOW
                     )
                 else:
-                    # For non-Windows platforms
+                    # Original launch method for all other programs
                     subprocess.Popen(
-                        [sys.executable, program_path],
+                        ['python', program_path],
                         env=launch_env,
-                        cwd=installation_directory
+                        creationflags=subprocess.CREATE_NO_WINDOW
                     )
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name} for {self.user_first_name}...")
