@@ -1159,18 +1159,40 @@ class ProgramUpdater(QWidget):
 
                 # Special handling for SI Op Manager
                 if program_name == "SI Op Manager":
-                    subprocess.Popen(
-                        ['python', program_path],
+                    logger.info(f"Launching SI Op Manager with special independent process handling")
+                    
+                    # Set up startup info to hide the window
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = 0  # SW_HIDE
+                    
+                    # Create a completely detached process that will continue to run even when Elysium closes
+                    # The combination of these flags creates a truly independent process
+                    proc = subprocess.Popen(
+                        [sys.executable, program_path],
                         env=launch_env,
                         cwd=installation_directory,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                        startupinfo=startupinfo,
+                        shell=False,
+                        close_fds=True
                     )
+                    logger.info(f"SI Op Manager launched with PID: {proc.pid}")
                 else:
-                    # Original launch method for all other programs
+                    logger.info(f"Launching {program_name}")
+                    # Improved launch method for all other programs
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+                    
+                    # Launch with subprocess but ensure proper window visibility
                     subprocess.Popen(
-                        ['python', program_path],
+                        [sys.executable, program_path],
                         env=launch_env,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        cwd=installation_directory,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        startupinfo=startupinfo,
+                        shell=False
                     )
 
                 QMessageBox.information(self, 'Launch', f"Launching {program_name} for {self.user_first_name}...")
