@@ -266,6 +266,46 @@ def is_git_installed():
     logger.info("Git not found")
     return False
 
+def find_nodejs_bin_dir():
+    """Return the directory containing npm.cmd, or None if not found."""
+    npm_path = shutil.which('npm')
+    if npm_path:
+        return os.path.dirname(os.path.abspath(npm_path))
+
+    candidates = [
+        r"C:\Program Files\nodejs",
+        r"C:\Program Files (x86)\nodejs",
+        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'node'),
+        os.path.join(os.path.expanduser('~'), 'nodejs'),
+    ]
+
+    for candidate in candidates:
+        if os.path.exists(os.path.join(candidate, 'npm.cmd')):
+            return candidate
+        if os.path.isdir(candidate):
+            try:
+                for entry in os.listdir(candidate):
+                    subdir = os.path.join(candidate, entry)
+                    if os.path.isdir(subdir) and os.path.exists(os.path.join(subdir, 'npm.cmd')):
+                        return subdir
+            except OSError:
+                continue
+
+    return None
+
+def ensure_nodejs_path(env):
+    """Prepend Node.js bin directory to PATH in env; returns True if npm is available."""
+    node_dir = find_nodejs_bin_dir()
+    if not node_dir:
+        return False
+
+    path_key = 'PATH'
+    current_path = env.get(path_key, '')
+    if node_dir.lower() not in current_path.lower():
+        env[path_key] = node_dir + os.pathsep + current_path
+
+    return os.path.exists(os.path.join(node_dir, 'npm.cmd'))
+
 def install_git():
     """Download and install Git for Windows."""
     logger.info("Starting Git installation...")
@@ -818,6 +858,11 @@ class ProgramUpdater(QWidget):
                 "script": "main.py",
                 "repo_name": "SI-Opportunity-Manager---Current-State-02-2025",
                 "repo_url": "https://github.com/Zmang24/SI-Opportunity-Manager---Current-State-02-2025"
+            },
+            "Flow": {
+                "icon_url": "https://raw.githubusercontent.com/Protechas/Flow/main/launcher/flow-icon.ico",
+                "script": "launcher/launch-flow.vbs",
+                "repo_url": "https://github.com/Protechas/Flow.git"
             }
         }
 
@@ -1157,15 +1202,31 @@ class ProgramUpdater(QWidget):
                 launch_env['LAUNCHER_STYLE'] = self.dark_style
                 launch_env['PYTHONPATH'] = installation_directory
 
-                # Special handling for SI Op Manager
-                if program_name == "SI Op Manager":
+                if program_name == "Flow":
+                    flow_env = os.environ.copy()
+                    if not ensure_nodejs_path(flow_env):
+                        QMessageBox.critical(
+                            self,
+                            'Node.js Required',
+                            "Node.js is required to run Flow but was not found.\n\n"
+                            "Install Node.js from https://nodejs.org and restart Elysium, "
+                            "or ensure npm is available on your PATH."
+                        )
+                        return
+
+                    subprocess.Popen(
+                        ['wscript.exe', program_path],
+                        cwd=installation_directory,
+                        env=flow_env,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                elif program_name == "SI Op Manager":
                     subprocess.Popen(
                         ['python', program_path],
                         env=launch_env,
                         creationflags=subprocess.CREATE_NO_WINDOW
                     )
                 else:
-                    # Original launch method for all other programs
                     subprocess.Popen(
                         ['python', program_path],
                         env=launch_env,
