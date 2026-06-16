@@ -863,6 +863,11 @@ class ProgramUpdater(QWidget):
                 "icon_url": "https://raw.githubusercontent.com/Protechas/Flow/main/launcher/flow-icon.ico",
                 "script": "launcher/launch-flow.vbs",
                 "repo_url": "https://github.com/Protechas/Flow.git"
+            },
+            "SmartSplit": {
+                "icon_path": os.path.join(os.path.dirname(os.path.abspath(__file__)), "SmartSplit.ico"),
+                "script": "excel_splitter.py",
+                "local_dir": os.path.dirname(os.path.abspath(__file__))
             }
         }
 
@@ -920,8 +925,13 @@ class ProgramUpdater(QWidget):
 
         # Iterate through each program and create ProgramIcon
         for program, info in self.programs.items():
-            icon_path = self.download_icon(info["icon_url"])
-            if icon_path:
+            # Handle both remote icons (icon_url) and local icons (icon_path)
+            if "icon_path" in info:
+                icon_path = info["icon_path"]
+            else:
+                icon_path = self.download_icon(info["icon_url"])
+            
+            if icon_path and os.path.exists(icon_path):
                 icon_widget = ProgramIcon(program, icon_path)
                 icon_widget.clicked.connect(self.program_clicked)
                 grid_layout.addWidget(icon_widget, row, col)
@@ -1132,14 +1142,16 @@ class ProgramUpdater(QWidget):
                 )
                 return
         
-        # Continue with program updates as before
+        # Continue with program updates as before (only for git-based programs)
+        git_programs = {name: info for name, info in self.programs.items() if info.get("repo_url")}
+        
         self.completed_updates = 0
-        self.total_updates = len(self.programs)
+        self.total_updates = len(git_programs)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.show()
         
-        for program_name, info in self.programs.items():
+        for program_name, info in git_programs.items():
             self.update_program_direct(program_name, info["repo_url"])
 
     def update_and_launch_program(self):
@@ -1150,8 +1162,9 @@ class ProgramUpdater(QWidget):
                 script_name = program_info["script"]
                 folder_name = program_info.get('repo_name', program_name)
                 git_repo_url = program_info.get('repo_url', '')
+                local_dir = program_info.get('local_dir', '')
 
-                # Check if Git is installed before updating
+                # Check if Git is installed before updating (only for git-based programs)
                 if git_repo_url and not is_git_installed():
                     logger.info(f"Git not found when launching {program_name}, prompting user for installation")
                     reply = QMessageBox.question(
@@ -1178,12 +1191,15 @@ class ProgramUpdater(QWidget):
                         # Continue without updating
                         pass
                 
-                # Update the program before launching (if Git is available)
+                # Update the program before launching (if Git is available and it's a git-based program)
                 if git_repo_url and is_git_installed():
                     self.update_program_direct(program_name, git_repo_url)
 
-                # Get the installation directory using the correct folder name
-                installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
+                # Get the installation directory - use local_dir for local programs, otherwise Documents/Elysium/folder_name
+                if local_dir:
+                    installation_directory = local_dir
+                else:
+                    installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
 
                 # Check for requirements.txt and install dependencies if needed
                 requirements_file = os.path.join(installation_directory, 'requirements.txt')
