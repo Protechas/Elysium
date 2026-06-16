@@ -865,9 +865,9 @@ class ProgramUpdater(QWidget):
                 "repo_url": "https://github.com/Protechas/Flow.git"
             },
             "SmartSplit": {
-                "icon_path": os.path.join(os.path.dirname(os.path.abspath(__file__)), "SmartSplit.ico"),
+                "icon_url": "https://raw.githubusercontent.com/Protechas/SmartSplit/refs/heads/main/SmartSplit.ico",
                 "script": "excel_splitter.py",
-                "local_dir": os.path.dirname(os.path.abspath(__file__))
+                "repo_url": "https://github.com/Protechas/SmartSplit"
             }
         }
 
