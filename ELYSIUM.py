@@ -445,12 +445,41 @@ class ProgramIcon(QWidget):
         self.highlight = False
         self.update()
 
+    def _load_icon_pixmap(self):
+        icon = QIcon(self.icon_path)
+        source = icon.pixmap(QSize(256, 256))
+        if source.isNull():
+            source = QPixmap(self.icon_path)
+        if source.isNull():
+            return source
+
+        image = source.toImage().convertToFormat(source.toImage().Format_ARGB32)
+        width, height = image.width(), image.height()
+        min_x, min_y = width, height
+        max_x, max_y = 0, 0
+        found_pixels = False
+
+        for y in range(height):
+            for x in range(width):
+                if image.pixelColor(x, y).alpha() > 10:
+                    found_pixels = True
+                    min_x = min(min_x, x)
+                    min_y = min(min_y, y)
+                    max_x = max(max_x, x)
+                    max_y = max(max_y, y)
+
+        if found_pixels:
+            source = source.copy(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+
+        return source.scaled(
+            QSize(*self.icon_size),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+
     def paintEvent(self, event):
         painter = QPainter(self)
-        pixmap = QPixmap(self.icon_path)
-
-        # Scale pixmap based on icon_size
-        pixmap = pixmap.scaled(QSize(*self.icon_size), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        pixmap = self._load_icon_pixmap()
 
         if self.highlight:
             highlight_gradient = QColor(0, 128, 128)  # Teal color
@@ -461,9 +490,11 @@ class ProgramIcon(QWidget):
             gradient.setColorAt(1, QColor(0, 0, 0, 0))  # Fully transparent color
             painter.fillRect(gradient_rect, gradient)
 
-        # Center the pixmap horizontally
+        # Center the pixmap in the icon area above the label
+        icon_area_height = 75
         pixmap_x = (self.width() - pixmap.width()) // 2
-        painter.drawPixmap(pixmap_x, 5, pixmap)
+        pixmap_y = 5 + max(0, (icon_area_height - pixmap.height()) // 2)
+        painter.drawPixmap(pixmap_x, pixmap_y, pixmap)
 
         # Draw program name below the icon
         painter.setFont(QFont('Arial', 10))
@@ -506,11 +537,12 @@ class GitUpdateThread(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
 
-    def __init__(self, program_name, git_repo_url, program_directory):
+    def __init__(self, program_name, git_repo_url, program_directory, icon_basename=None):
         super().__init__()
         self.program_name = program_name
         self.git_repo_url = git_repo_url
         self.program_directory = program_directory
+        self.icon_basename = icon_basename
 
     def run(self):
         try:
@@ -538,6 +570,15 @@ class GitUpdateThread(QThread):
 
             if process.returncode == 0:
                 self.progress_signal.emit(f"{self.program_name} update completed successfully.")
+
+                if self.icon_basename:
+                    source_icon = os.path.join(self.program_directory, self.icon_basename)
+                    if os.path.exists(source_icon):
+                        dest_icon = os.path.join(
+                            os.path.dirname(self.program_directory),
+                            self.icon_basename,
+                        )
+                        shutil.copy2(source_icon, dest_icon)
                 
                 # Check for requirements.txt and install dependencies
                 requirements_file = os.path.join(self.program_directory, 'requirements.txt')
@@ -831,6 +872,7 @@ class ProgramUpdater(QWidget):
         self.active_threads = []
         self.completed_updates = 0
         self.total_updates = 0
+        elysium_dir = os.path.dirname(os.path.abspath(__file__))
 
         self.programs = {
             "DFR": {
@@ -868,6 +910,11 @@ class ProgramUpdater(QWidget):
                 "icon_url": "https://raw.githubusercontent.com/Protechas/SmartSplit/refs/heads/main/SmartSplit.ico",
                 "script": "excel_splitter.py",
                 "repo_url": "https://github.com/Protechas/SmartSplit"
+            },
+            "Combiner": {
+                "icon_path": os.path.join(elysium_dir, "combiner_icon.ico"),
+                "script": "main.py",
+                "repo_url": "https://github.com/Protechas/combiner.git"
             }
         }
 
@@ -920,25 +967,25 @@ class ProgramUpdater(QWidget):
         grid_layout = QGridLayout()
         grid_layout.setAlignment(Qt.AlignCenter)
         grid_layout.setSpacing(10)
-        row = 0
-        col = 0
 
         # Iterate through each program and create ProgramIcon
+        self.program_grid_layout = grid_layout
+        self.program_grid_row = 0
+        self.program_grid_col = 0
+        self.displayed_programs = set()
+
         for program, info in self.programs.items():
-            # Handle both remote icons (icon_url) and local icons (icon_path)
-            if "icon_path" in info:
-                icon_path = info["icon_path"]
-            else:
-                icon_path = self.download_icon(info["icon_url"])
+            icon_path = self.resolve_program_icon_path(program, info)
             
             if icon_path and os.path.exists(icon_path):
                 icon_widget = ProgramIcon(program, icon_path)
                 icon_widget.clicked.connect(self.program_clicked)
-                grid_layout.addWidget(icon_widget, row, col)
-                col += 1
-                if col == 3:
-                    row += 1
-                    col = 0
+                grid_layout.addWidget(icon_widget, self.program_grid_row, self.program_grid_col)
+                self.displayed_programs.add(program)
+                self.program_grid_col += 1
+                if self.program_grid_col == 3:
+                    self.program_grid_row += 1
+                    self.program_grid_col = 0
 
         layout.addLayout(grid_layout)
 
@@ -1044,6 +1091,8 @@ class ProgramUpdater(QWidget):
     def download_icon(self, url):
         try:
             local_filename = os.path.join(self.base_dir, os.path.basename(url))
+            if os.path.exists(local_filename):
+                return local_filename
             response = requests.get(url)
             response.raise_for_status()
             with open(local_filename, 'wb') as f:
@@ -1052,6 +1101,53 @@ class ProgramUpdater(QWidget):
         except requests.RequestException as e:
             print(f"Failed to download icon: {e}")
             return None
+
+    def resolve_program_icon_path(self, program, info):
+        if "icon_path" in info:
+            icon_path = info["icon_path"]
+            if icon_path and os.path.exists(icon_path):
+                return icon_path
+            return None
+
+        icon_url = info.get("icon_url")
+        if not icon_url:
+            return None
+
+        icon_path = self.download_icon(icon_url)
+        if icon_path and os.path.exists(icon_path):
+            return icon_path
+
+        folder_name = info.get("repo_name", program)
+        repo_icon = os.path.join(
+            self.base_dir,
+            folder_name,
+            os.path.basename(icon_url),
+        )
+        if os.path.exists(repo_icon):
+            return repo_icon
+
+        return None
+
+    def refresh_program_icons(self):
+        if not hasattr(self, "program_grid_layout"):
+            return
+
+        for program, info in self.programs.items():
+            if program in self.displayed_programs:
+                continue
+
+            icon_path = self.resolve_program_icon_path(program, info)
+            if icon_path and os.path.exists(icon_path):
+                icon_widget = ProgramIcon(program, icon_path)
+                icon_widget.clicked.connect(self.program_clicked)
+                self.program_grid_layout.addWidget(
+                    icon_widget, self.program_grid_row, self.program_grid_col
+                )
+                self.displayed_programs.add(program)
+                self.program_grid_col += 1
+                if self.program_grid_col == 3:
+                    self.program_grid_row += 1
+                    self.program_grid_col = 0
 
     def program_clicked(self, program_name):
         QMessageBox.information(self, "Program Selected", f"You selected {program_name}")
@@ -1083,9 +1179,15 @@ class ProgramUpdater(QWidget):
             base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
             folder_name = self.programs[program_name].get('repo_name', program_name)
             program_directory = os.path.join(base_directory, folder_name)
+            program_info = self.programs[program_name]
+            icon_basename = None
+            if program_info.get("icon_url"):
+                icon_basename = os.path.basename(program_info["icon_url"])
 
             # Create and start the update thread
-            update_thread = GitUpdateThread(program_name, git_repo_url, program_directory)
+            update_thread = GitUpdateThread(
+                program_name, git_repo_url, program_directory, icon_basename
+            )
             update_thread.progress_signal.connect(self.update_status)
             update_thread.finished_signal.connect(lambda: self.thread_finished(program_name))
             
@@ -1104,6 +1206,7 @@ class ProgramUpdater(QWidget):
         if self.completed_updates == self.total_updates:
             self.progress_bar.hide()
             self.status_label.setText("All updates completed!")
+            self.refresh_program_icons()
             self.active_threads.clear()
             self.completed_updates = 0
 
