@@ -297,6 +297,15 @@ $LauncherLog
     }
 }
 
+function Stop-StaleFlowServer {
+    $flowDir = Join-Path $ElysiumDir "Flow"
+    $stopScript = Join-Path $ElysiumDir "launcher\stop-flow.ps1"
+    if (Test-Path $stopScript) {
+        Write-Host "Stopping any stale Flow server processes..."
+        powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $stopScript -FlowDir $flowDir | Out-Null
+    }
+}
+
 function Stop-OtherElysiumInstances {
     $processes = Get-CimInstance Win32_Process | Where-Object {
         ($_.CommandLine -and (
@@ -342,6 +351,7 @@ $LauncherLog
 
     Write-Host "Using Python: $($python.Command) $($python.Args -join ' ')"
     Sync-ElysiumRepo -Python $python
+    Stop-StaleFlowServer
     Install-ElysiumDependencies -Python $python
 
     $elysiumScript = Join-Path $ElysiumDir "ELYSIUM.py"

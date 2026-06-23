@@ -72,6 +72,27 @@ def close_other_elysium_instances():
         pass
 
 
+def stop_flow_server():
+    flow_dir = os.path.join(ELYSIUM_DIR, "Flow")
+    stop_script = os.path.join(ELYSIUM_DIR, "launcher", "stop-flow.ps1")
+    if not os.path.isfile(stop_script):
+        return
+    try:
+        subprocess.run(
+            [
+                "powershell", "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Bypass", "-File", stop_script,
+                "-FlowDir", flow_dir,
+            ],
+            check=False,
+            timeout=60,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+
 def is_real_python(python_exe):
     if not os.path.isfile(python_exe):
         return False
@@ -275,6 +296,7 @@ def main():
             )
 
         sync_repo()
+        stop_flow_server()
         install_dependencies(python_cmd)
 
         elysium_script = os.path.join(ELYSIUM_DIR, "ELYSIUM.py")

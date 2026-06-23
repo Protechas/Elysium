@@ -80,11 +80,17 @@ If you still see this error:
 
 ### WinError 32 — log file locked by another process
 
-This happens when two ELYSIUM windows are open, or a previous instance did not close cleanly.
+This happens when two ELYSIUM windows are open, a previous instance did not close cleanly, or a **Flow** dev server is still running in the background.
 
-1. Close all ELYSIUM windows (check Task Manager for leftover `python.exe` processes)
-2. Run **`LaunchElysium.bat`** again
-3. ELYSIUM will continue with console logging if the log file is still locked
+1. Close all ELYSIUM windows (check Task Manager for leftover `python.exe` / `node.exe` processes)
+2. Run **`LaunchElysium.bat`** again — it now stops stale Flow servers and releases `Flow\launcher\logs\server.log` automatically
+3. ELYSIUM will continue with console logging if its own log file is still locked
+
+### Flow fails with server.log / Initialization Error
+
+Flow's dev server writes to `%USERPROFILE%\Documents\Elysium\Flow\launcher\logs\server.log`. If a previous Flow session is still running, the new launch fails with WinError 32.
+
+ELYSIUM now stops stale Flow processes before launching Flow and patches the Flow launcher after each update. Pull the latest ELYSIUM and relaunch via your executable or `LaunchElysium.bat`.
 
 ### Console flashes and closes immediately
 

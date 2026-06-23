@@ -125,6 +125,124 @@ def close_other_elysium_instances():
     time.sleep(0.5)
 
 
+def get_flow_base_dir():
+    return os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'Flow')
+
+
+def get_stop_flow_script_path():
+    elysium_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(elysium_dir, 'launcher', 'stop-flow.ps1')
+    if os.path.isfile(script_path):
+        return script_path
+    return None
+
+
+def stop_flow_server():
+    """Stop stale Flow dev server processes and release server.log locks."""
+    flow_dir = get_flow_base_dir()
+    if not os.path.isdir(os.path.join(flow_dir, 'launcher')):
+        return
+
+    logger.info("Stopping any stale Flow server processes")
+    stop_script = get_stop_flow_script_path()
+
+    try:
+        if stop_script:
+            result = subprocess.run(
+                [
+                    'powershell', '-NoProfile', '-NonInteractive',
+                    '-ExecutionPolicy', 'Bypass', '-File', stop_script,
+                    '-FlowDir', flow_dir,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                creationflags=_subprocess_no_window_flags(),
+            )
+            if result.stdout:
+                logger.info(result.stdout.strip())
+            if result.returncode != 0 and result.stderr:
+                logger.warning(f"Flow cleanup stderr: {result.stderr.strip()}")
+        else:
+            flow_escaped = flow_dir.replace("'", "''")
+            ps_script = (
+                f"$FlowDir = '{flow_escaped}'; "
+                "$PidFile = Join-Path $FlowDir 'launcher\\logs\\server.pid'; "
+                "$ServerLog = Join-Path $FlowDir 'launcher\\logs\\server.log'; "
+                "$Port = 3000; "
+                "if (Test-Path $PidFile) { "
+                "$p = Get-Content $PidFile -EA SilentlyContinue; "
+                "if ($p) { Stop-Process -Id $p -Force -EA SilentlyContinue }; "
+                "Remove-Item $PidFile -Force -EA SilentlyContinue }; "
+                "1..4 | ForEach-Object { "
+                "$c = Get-NetTCPConnection -LocalPort $Port -State Listen -EA SilentlyContinue | Select -First 1; "
+                "if (-not $c) { return }; "
+                "Stop-Process -Id $c.OwningProcess -Force -EA SilentlyContinue; "
+                "Start-Sleep -Milliseconds 500 }; "
+                "if (Test-Path $ServerLog) { Remove-Item $ServerLog -Force -EA SilentlyContinue }"
+            )
+            subprocess.run(
+                ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_script],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                creationflags=_subprocess_no_window_flags(),
+            )
+    except Exception as e:
+        logger.warning(f"Could not stop Flow server: {e}")
+
+    time.sleep(0.5)
+
+
+def patch_flow_launcher(flow_dir):
+    """Patch Flow launcher to stop stale servers before writing server.log."""
+    ps1_path = os.path.join(flow_dir, 'launcher', 'launch-flow.ps1')
+    if not os.path.isfile(ps1_path):
+        return
+
+    try:
+        with open(ps1_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        patch_marker = 'Stop-FlowServer\n    if (Test-Path $ServerLog)'
+        if patch_marker in content:
+            return
+
+        old_block = (
+            "function Start-FlowServer {\n"
+            "    Ensure-Dependencies\n"
+            "\n"
+            "    # Dev mode keeps client bundles in sync with source (production start can break clicks)."
+        )
+        new_block = (
+            "function Start-FlowServer {\n"
+            "    Stop-FlowServer\n"
+            "    if (Test-Path $ServerLog) {\n"
+            "        Remove-Item $ServerLog -Force -ErrorAction SilentlyContinue\n"
+            "    }\n"
+            "    Ensure-Dependencies\n"
+            "\n"
+            "    # Dev mode keeps client bundles in sync with source (production start can break clicks)."
+        )
+
+        if old_block not in content:
+            logger.warning("Flow launcher patch skipped: Start-FlowServer block not found")
+            return
+
+        with open(ps1_path, 'w', encoding='utf-8') as f:
+            f.write(content.replace(old_block, new_block, 1))
+        logger.info("Patched Flow launcher to release server.log before startup")
+    except OSError as e:
+        logger.warning(f"Could not patch Flow launcher: {e}")
+
+
+def close_stale_application_state():
+    """Close duplicate ELYSIUM windows and stale Flow servers from prior sessions."""
+    close_other_elysium_instances()
+    stop_flow_server()
+    patch_flow_launcher(get_flow_base_dir())
+
+
 def restart_application():
     """Restart Elysium after installing dependencies (more reliable than os.execl from EXE wrappers)."""
     subprocess.Popen([sys.executable] + sys.argv, close_fds=False)
@@ -657,6 +775,9 @@ class GitUpdateThread(QThread):
 
             if process.returncode == 0:
                 self.progress_signal.emit(f"{self.program_name} update completed successfully.")
+
+                if self.program_name == "Flow":
+                    patch_flow_launcher(self.program_directory)
 
                 if self.icon_basename:
                     source_icon = os.path.join(self.program_directory, self.icon_basename)
@@ -1419,6 +1540,9 @@ class ProgramUpdater(QWidget):
                         )
                         return
 
+                    patch_flow_launcher(installation_directory)
+                    stop_flow_server()
+
                     subprocess.Popen(
                         ['wscript.exe', program_path],
                         cwd=installation_directory,
@@ -1851,7 +1975,7 @@ def get_user_first_name():
     return "User"
 
 def main():
-    close_other_elysium_instances()
+    close_stale_application_state()
     ensure_elysium_dependencies()
 
     app = QApplication(sys.argv)
