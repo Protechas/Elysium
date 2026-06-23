@@ -1,2 +1,119 @@
 # Elysium
-This Elysium Launcher is utilized for Having one main GUI that will Update, and Run Custom Programs that were developed by Protech Automotive Solutions.
+
+ELYSIUM is a Windows launcher GUI that updates and runs custom programs developed by Protech Automotive Solutions.
+
+## System requirements
+
+- Windows 10 or Windows 11 (64-bit)
+- Python 3.10 or newer (3.11 recommended), **or** use `ElysiumLauncher.exe` after building it
+- Git for Windows (for downloading and updating programs)
+- Internet access (GitHub, PyPI)
+- Node.js (only required to run the **Flow** program)
+
+## How to launch (recommended)
+
+1. Install [Python](https://www.python.org/downloads/) and check **Add python.exe to PATH** during setup.
+2. Install [Git for Windows](https://git-scm.com/download/win).
+3. Double-click **`LaunchElysium.bat`** in this repository folder.
+
+The launcher will:
+
+- Find a working Python installation
+- Clone or update ELYSIUM into `%USERPROFILE%\Documents\Elysium`
+- Install required Python packages if missing
+- Start the ELYSIUM GUI
+
+### Alternative launch methods
+
+**PowerShell:**
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\launcher\LaunchElysium.ps1"
+```
+
+**Manual (for debugging):**
+
+```powershell
+cd $env:USERPROFILE\Documents\Elysium
+python -u ELYSIUM.py
+```
+
+If `python` is not found, try:
+
+```powershell
+py -3.11 -u ELYSIUM.py
+```
+
+## Python dependencies
+
+Install manually if needed:
+
+```powershell
+pip install -r requirements.txt
+```
+
+Packages: `PyQt5`, `requests`, `openpyxl`, `setuptools`
+
+## Building the EXE launcher
+
+For users who expect a `.exe` instead of a batch file:
+
+```powershell
+.\build.ps1
+```
+
+This creates `dist\ElysiumLauncher.exe`, which finds Python on the machine, syncs the repo, installs dependencies, and starts ELYSIUM.
+
+> Note: `ElysiumLauncher.exe` still requires Python and Git to be installed on the target PC. It replaces opaque external bootstrap EXEs with a maintained launcher that shows clear errors instead of flashing closed.
+
+## Troubleshooting
+
+### Console flashes and closes immediately
+
+This usually means an uncaught startup error.
+
+1. Run **`LaunchElysium.bat`** from Command Prompt (not double-click) so the window stays open.
+2. Or run manually:
+   ```powershell
+   cd $env:USERPROFILE\Documents\Elysium
+   python -u ELYSIUM.py
+   ```
+3. Check log files:
+   - `%USERPROFILE%\Documents\Elysium\logs\launcher_error.log`
+   - `%USERPROFILE%\Documents\Elysium\logs\elysium_crash.log`
+   - `%USERPROFILE%\Documents\Elysium\logs\dependency_log_*.log`
+
+Inside ELYSIUM, press **Shift+F9** to reveal the **View Dependency Logs** button.
+
+### Python not found
+
+- Reinstall Python from https://www.python.org/downloads/
+- Enable **Add python.exe to PATH**
+- Avoid the Microsoft Store Python stub; install from python.org
+
+### Git errors on startup
+
+Install Git from https://git-scm.com/download/win and restart the launcher.
+
+### Corporate networks / pip failures
+
+If package install fails behind a proxy or SSL inspection, run pip manually with trusted hosts:
+
+```powershell
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+```
+
+### Flow won't launch
+
+Install Node.js from https://nodejs.org and restart ELYSIUM.
+
+## Data locations
+
+| Path | Purpose |
+|------|---------|
+| `%USERPROFILE%\Documents\Elysium\` | Cloned programs and ELYSIUM install |
+| `%USERPROFILE%\Documents\Elysium\logs\` | Crash, launcher, and dependency logs |
+
+## Managed programs
+
+DFR, SI MultiTool, Hyper, Analyzer+, SI Op Manager, Flow, SmartSplit, and Combiner are cloned from GitHub into `Documents\Elysium` and updated automatically on startup.

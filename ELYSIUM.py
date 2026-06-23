@@ -64,24 +64,76 @@ def setup_logging():
 # Set up logging immediately
 logger = setup_logging()
 
-# Now import everything else
+# Stdlib only until third-party dependencies are verified
 import subprocess
-import requests
-from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect, QThread
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QProgressBar, QDialog, QTextEdit, QComboBox, QShortcut
-from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics, QKeySequence
-from PyQt5.QtCore import Qt
-from subprocess import Popen, PIPE
-import openpyxl
-import win32com.client
 import re
-import pkg_resources
-from pkg_resources import DistributionNotFound, VersionConflict
 import shutil
 import tempfile
 import winreg
+import ctypes
+import faulthandler
+import traceback
+from subprocess import Popen, PIPE
 
-# Function to check and install dependencies
+
+def get_log_dir():
+    log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    return log_dir
+
+
+def get_crash_log_path():
+    return os.path.join(get_log_dir(), 'elysium_crash.log')
+
+
+def restart_application():
+    """Restart Elysium after installing dependencies (more reliable than os.execl from EXE wrappers)."""
+    subprocess.Popen([sys.executable] + sys.argv, close_fds=False)
+    sys.exit(0)
+
+
+def show_fatal_error(title, message):
+    try:
+        ctypes.windll.user32.MessageBoxW(0, message, title, 0x10)
+    except Exception:
+        print(f"{title}: {message}")
+
+
+def bootstrap_startup():
+    crash_log = get_crash_log_path()
+
+    def excepthook(exc_type, exc_value, exc_tb):
+        tb_text = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            with open(crash_log, 'a', encoding='utf-8') as f:
+                f.write(f"\n{'=' * 60}\n")
+                f.write(datetime.datetime.now().isoformat() + "\n")
+                f.write(tb_text)
+        except Exception:
+            pass
+        logger.error(f"Unhandled exception:\n{tb_text}")
+        msg = (
+            f"ELYSIUM encountered an error and could not continue.\n\n"
+            f"Details were saved to:\n{crash_log}\n\n"
+            f"{exc_type.__name__}: {exc_value}"
+        )
+        try:
+            from PyQt5.QtWidgets import QApplication, QMessageBox
+            if QApplication.instance() is None:
+                app = QApplication([])
+            QMessageBox.critical(None, "ELYSIUM Error", msg)
+        except Exception:
+            show_fatal_error("ELYSIUM Error", msg)
+
+    sys.excepthook = excepthook
+
+    try:
+        crash_file = open(crash_log, 'a', encoding='utf-8')
+        faulthandler.enable(crash_file)
+    except Exception:
+        pass
+
+
 def check_and_install_elysium_dependencies():
     """Check and install Elysium's own dependencies."""
     logger.info("Checking Elysium's own dependencies")
@@ -91,26 +143,17 @@ def check_and_install_elysium_dependencies():
         "PyQt5",
         "requests",
         "openpyxl",
-        "pywin32",
-        "wmi",
-        "setuptools"  # Required for pkg_resources
+        "setuptools",  # Required for pkg_resources
     ]
-    
-    # Check which packages need to be installed
+
     missing_packages = []
     for package in required_packages:
         try:
             if package == "PyQt5":
-                # Try to import a specific module from PyQt5
                 __import__("PyQt5.QtCore")
-            elif package == "pywin32":
-                # For pywin32, try to import win32com.client
-                __import__("win32com.client")
             elif package == "setuptools":
-                # For setuptools, try to import pkg_resources
                 __import__("pkg_resources")
             else:
-                # For other packages, try to import them directly
                 __import__(package)
             logger.info(f"Package already installed: {package}")
         except ImportError:
@@ -166,46 +209,42 @@ def check_and_install_elysium_dependencies():
         logger.error(f"Error installing Elysium dependencies: {str(e)}", exc_info=True)
         return False
 
-# Check dependencies before importing them
-try:
-    # Try to import the required packages
-    import requests
-    import PyQt5.QtCore
-    import openpyxl
-    import win32com.client
-    import pkg_resources
-    # Try to import wmi
-    import wmi  # type: ignore
-    logger.info("All required packages are already installed")
-except ImportError as e:
-    # If any package is missing, we need to install it
-    logger.warning(f"Missing dependency: {str(e)}")
-    print("Some dependencies are missing. Attempting to install them...")
-    
-    # We can't use QMessageBox here because QApplication isn't created yet
-    # So we'll use a simple console message
-    if check_and_install_elysium_dependencies():
-        print("Dependencies installed successfully. Launching Elysium...")
-        # Need to restart the application to use the newly installed packages
-        python = sys.executable
-        os.execl(python, python, *sys.argv)
-    else:
-        print("Failed to install dependencies. Please install them manually:")
-        print("pip install PyQt5 requests openpyxl pywin32 wmi setuptools")
-        sys.exit(1)
+def ensure_elysium_dependencies():
+    """Verify third-party packages; install and restart if any are missing."""
+    try:
+        __import__("requests")
+        __import__("PyQt5.QtCore")
+        __import__("openpyxl")
+        __import__("pkg_resources")
+        logger.info("All required packages are already installed")
+        return True
+    except ImportError as e:
+        logger.warning(f"Missing dependency: {str(e)}")
+        print("Some dependencies are missing. Attempting to install them...")
+        if check_and_install_elysium_dependencies():
+            print("Dependencies installed successfully. Launching Elysium...")
+            restart_application()
+        else:
+            manual_cmd = "pip install PyQt5 requests openpyxl setuptools"
+            print("Failed to install dependencies. Please install them manually:")
+            print(manual_cmd)
+            show_fatal_error(
+                "ELYSIUM - Missing Dependencies",
+                f"Required Python packages could not be installed.\n\n"
+                f"Open a terminal and run:\n{manual_cmd}"
+            )
+            sys.exit(1)
 
-# Now that we've ensured dependencies are installed, import everything else
-from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect, QThread
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QProgressBar, QDialog, QTextEdit, QComboBox, QShortcut
-from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics, QKeySequence
-from subprocess import Popen, PIPE
-import re
+
+ensure_elysium_dependencies()
+
+import requests
+import openpyxl
 import pkg_resources
 from pkg_resources import DistributionNotFound, VersionConflict
-import openpyxl
-import win32com.client
-# Now it's safe to import wmi
-import wmi  # type: ignore
+from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect, QThread, QTimer
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QProgressBar, QDialog, QTextEdit, QComboBox, QShortcut
+from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics, QKeySequence
 
 def download_icon(url):
     try:
@@ -919,7 +958,6 @@ class ProgramUpdater(QWidget):
         }
 
         self.init_ui()
-        self.update_all_programs()
         self.setStyleSheet(self.dark_style)
 
     def init_ui(self):
@@ -1341,13 +1379,13 @@ class ProgramUpdater(QWidget):
                     )
                 elif program_name == "SI Op Manager":
                     subprocess.Popen(
-                        ['python', program_path],
+                        [sys.executable, program_path],
                         env=launch_env,
                         creationflags=subprocess.CREATE_NO_WINDOW
                     )
                 else:
                     subprocess.Popen(
-                        ['python', program_path],
+                        [sys.executable, program_path],
                         env=launch_env,
                         creationflags=subprocess.CREATE_NO_WINDOW
                     )
@@ -1702,9 +1740,7 @@ class ProgramUpdater(QWidget):
         )
         
         if reply == QMessageBox.Yes:
-            # Restart the application
-            python = sys.executable
-            os.execl(python, python, *sys.argv)
+            restart_application()
 
 def get_user_first_name():
     """Get the user's first name using multiple methods."""
@@ -1748,66 +1784,55 @@ def get_user_first_name():
     return "User"
 
 def main():
-    # First, set up basic logging to console (in case file logging fails due to missing dependencies)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
-    # Check and install Elysium's own dependencies before creating QApplication
-    try:
-        # Try to import the required packages
-        import requests
-        import PyQt5.QtCore
-        import openpyxl
-        import win32com.client
-        import pkg_resources
-        # Try to import wmi
-        import wmi  # type: ignore
-        logger.info("All required packages are already installed")
-    except ImportError as e:
-        # If any package is missing, we need to install it
-        logger.warning(f"Missing dependency: {str(e)}")
-        print("Some dependencies are missing. Attempting to install them...")
-        
-        # We can't use QMessageBox here because QApplication isn't created yet
-        # So we'll use a simple console message
-        if check_and_install_elysium_dependencies():
-            print("Dependencies installed successfully. Launching Elysium...")
-            # Need to restart the application to use the newly installed packages
-            python = sys.executable
-            os.execl(python, python, *sys.argv)
-        else:
-            print("Failed to install dependencies. Please install them manually:")
-            print("pip install PyQt5 requests openpyxl pywin32 wmi setuptools")
-            sys.exit(1)
-    
-    # Now we can safely create the QApplication
+    ensure_elysium_dependencies()
+
     app = QApplication(sys.argv)
     updater = ProgramUpdater()
-    
-    # Get the screen geometry to calculate the center position
+
     screen_geometry = app.primaryScreen().geometry()
     window_geometry = updater.geometry()
 
-    # Calculate the center position
     center_x = int((screen_geometry.width() - window_geometry.width()) / 2)
     center_y = int((screen_geometry.height() - window_geometry.height()) / 2)
 
-    # Set the window position to the center
     updater.move(center_x, center_y)
-    
-    # Retrieve the path to the user's Documents folder and append the 'Elysium' folder name
+
     icon_path = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'ELYSIUM_icon.ico')
 
-    # Set the window icon if it exists
     if os.path.exists(icon_path):
         updater.setWindowIcon(QIcon(icon_path))
 
     updater.show()
-    
+    QTimer.singleShot(0, updater.update_all_programs)
+
     sys.exit(app.exec_())
 
+
 if __name__ == "__main__":
-    main()
+    bootstrap_startup()
+    try:
+        main()
+    except Exception as e:
+        crash_log = get_crash_log_path()
+        tb_text = traceback.format_exc()
+        try:
+            with open(crash_log, 'a', encoding='utf-8') as f:
+                f.write(f"\n{'=' * 60}\n")
+                f.write(datetime.datetime.now().isoformat() + "\n")
+                f.write(tb_text)
+        except Exception:
+            pass
+        logger.error(f"Fatal error in main(): {tb_text}")
+        msg = (
+            f"ELYSIUM failed to start.\n\n"
+            f"Details were saved to:\n{crash_log}\n\n"
+            f"{type(e).__name__}: {e}"
+        )
+        try:
+            from PyQt5.QtWidgets import QApplication, QMessageBox
+            if QApplication.instance() is None:
+                app = QApplication([])
+            QMessageBox.critical(None, "ELYSIUM Error", msg)
+        except Exception:
+            show_fatal_error("ELYSIUM Error", msg)
+        sys.exit(1)
