@@ -127,6 +127,92 @@ function Invoke-Python {
     return $LASTEXITCODE
 }
 
+function Find-Git {
+    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+    if ($gitCmd) {
+        return $gitCmd.Source
+    }
+
+    $candidates = @(
+        "C:\Program Files\Git\cmd\git.exe",
+        "C:\Program Files\Git\bin\git.exe",
+        "C:\Program Files (x86)\Git\cmd\git.exe",
+        "C:\Program Files (x86)\Git\bin\git.exe"
+    )
+
+    try {
+        $regPath = "HKLM:\SOFTWARE\GitForWindows"
+        if (Test-Path $regPath) {
+            $installPath = (Get-ItemProperty $regPath).InstallPath
+            if ($installPath) {
+                $candidates = @(
+                    (Join-Path $installPath "cmd\git.exe"),
+                    (Join-Path $installPath "bin\git.exe")
+                ) + $candidates
+            }
+        }
+    } catch {}
+
+    foreach ($path in $candidates) {
+        if (Test-Path $path) {
+            $gitDir = Split-Path $path -Parent
+            if ($env:PATH -notlike "*$gitDir*") {
+                $env:PATH = "$gitDir;$env:PATH"
+            }
+            return $path
+        }
+    }
+
+    return $null
+}
+
+function Install-Git {
+    Write-Host "Git not found. Downloading Git for Windows..."
+    $gitUrl = "https://github.com/git-for-windows/git/releases/download/v2.42.0.windows.2/Git-2.42.0.2-64-bit.exe"
+    $installer = Join-Path $env:TEMP "elysium_git_installer.exe"
+    try {
+        Invoke-WebRequest -Uri $gitUrl -OutFile $installer -UseBasicParsing
+        $installArgs = @(
+            "/VERYSILENT",
+            "/NORESTART",
+            "/NOCANCEL",
+            "/SP-",
+            "/CLOSEAPPLICATIONS",
+            "/RESTARTAPPLICATIONS",
+            '/COMPONENTS="icons,ext\reg\shellhere,assoc,assoc_sh"'
+        )
+        $process = Start-Process -FilePath $installer -ArgumentList $installArgs -Wait -PassThru
+        if ($process.ExitCode -ne 0) {
+            return $null
+        }
+        Start-Sleep -Seconds 3
+        return Find-Git
+    } catch {
+        Write-LauncherLog "Git install failed: $($_.Exception.Message)"
+        return $null
+    } finally {
+        if (Test-Path $installer) {
+            Remove-Item $installer -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Ensure-Git {
+    $gitExe = Find-Git
+    if ($gitExe) {
+        return $gitExe
+    }
+
+    Write-Host "Git is not on PATH. Attempting silent install..."
+    $gitExe = Install-Git
+    if ($gitExe) {
+        Write-Host "Git installed successfully."
+        return $gitExe
+    }
+
+    return $null
+}
+
 function Sync-ElysiumRepo {
     param([hashtable]$Python)
 
@@ -134,10 +220,15 @@ function Sync-ElysiumRepo {
         New-Item -ItemType Directory -Path $ElysiumDir -Force | Out-Null
     }
 
-    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
-    if (-not $gitCmd) {
+    $elysiumScript = Join-Path $ElysiumDir "ELYSIUM.py"
+    $gitExe = Ensure-Git
+    if (-not $gitExe) {
+        if (Test-Path $elysiumScript) {
+            Write-Host "Warning: Git not found. Using existing ELYSIUM installation without updating."
+            return
+        }
         Show-LauncherError "ELYSIUM - Git Required" @"
-Git is required to download ELYSIUM but was not found on your PATH.
+Git is required to download ELYSIUM but was not found and could not be installed automatically.
 
 Install Git for Windows from:
 https://git-scm.com/download/win
@@ -151,8 +242,12 @@ Then run LaunchElysium.bat again.
         Write-Host "Updating ELYSIUM from GitHub..."
         Push-Location $ElysiumDir
         try {
-            git pull --ff-only 2>&1 | ForEach-Object { Write-Host $_ }
+            & $gitExe pull --ff-only 2>&1 | ForEach-Object { Write-Host $_ }
             if ($LASTEXITCODE -ne 0) {
+                if (Test-Path $elysiumScript) {
+                    Write-Host "Warning: git pull failed; continuing with existing ELYSIUM.py."
+                    return
+                }
                 throw "git pull failed with exit code $LASTEXITCODE"
             }
         } finally {
@@ -164,7 +259,7 @@ Then run LaunchElysium.bat again.
         $folder = Split-Path $ElysiumDir -Leaf
         Push-Location $parent
         try {
-            git clone $ElysiumRepo $folder 2>&1 | ForEach-Object { Write-Host $_ }
+            & $gitExe clone $ElysiumRepo $folder 2>&1 | ForEach-Object { Write-Host $_ }
             if ($LASTEXITCODE -ne 0) {
                 throw "git clone failed with exit code $LASTEXITCODE"
             }

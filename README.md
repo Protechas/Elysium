@@ -68,6 +68,24 @@ This creates `dist\ElysiumLauncher.exe`, which finds Python on the machine, sync
 
 ## Troubleshooting
 
+### Git executable not found / `where git` failed
+
+Git is installed on many PCs but not on PATH. ELYSIUM now searches common install locations (`C:\Program Files\Git\cmd`) and the Windows registry automatically.
+
+If you still see this error:
+
+1. Install Git from https://git-scm.com/download/win (choose **Add Git to PATH**)
+2. Use **`LaunchElysium.bat`** instead of an older external EXE — the new launcher can install Git silently or launch an existing copy of ELYSIUM without Git
+3. Restart your PC after installing Git so PATH updates apply
+
+### WinError 32 — log file locked by another process
+
+This happens when two ELYSIUM windows are open, or a previous instance did not close cleanly.
+
+1. Close all ELYSIUM windows (check Task Manager for leftover `python.exe` processes)
+2. Run **`LaunchElysium.bat`** again
+3. ELYSIUM will continue with console logging if the log file is still locked
+
 ### Console flashes and closes immediately
 
 This usually means an uncaught startup error.

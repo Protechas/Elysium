@@ -6,52 +6,42 @@ import sys
 
 # Set up basic logging first - MUST BE BEFORE ANY OTHER IMPORTS OR OPERATIONS
 def setup_logging():
+    logging.raiseExceptions = False
     try:
         # Initialize logger with just a console handler first
         logger = logging.getLogger('ElysiumDependencyManager')
         logger.setLevel(logging.INFO)
-        
+
         # Prevent duplicate handlers
         if not logger.handlers:
-            # Always set up console logging first
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
             logger.addHandler(console_handler)
-        
-        # Try to set up file logging with retries
-        max_retries = 3
-        retry_delay = 1  # seconds
-        
-        # Create logs directory if it doesn't exist
+
         log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
         os.makedirs(log_dir, exist_ok=True)
-        
+
+        # One log file per process avoids collisions when multiple instances start
+        log_file = os.path.join(log_dir, f'dependency_log_{os.getpid()}.log')
+        max_retries = 3
+        retry_delay = 1
+
         for attempt in range(max_retries):
             try:
-                # Generate unique log filename using timestamp, process ID, and random suffix
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                pid = os.getpid()  # Get the current process ID
-                random_suffix = str(int(time.time() * 1000) % 1000)  # Use milliseconds as suffix
-                log_file = os.path.join(log_dir, f'dependency_log_{timestamp}_{pid}_{random_suffix}.log')
-                
-                # Try to open the file to test if it's accessible
-                with open(log_file, 'a') as f:
-                    pass
-                    
-                # If successful, add the file handler
-                file_handler = logging.FileHandler(log_file)
+                file_handler = logging.FileHandler(log_file, delay=True, encoding='utf-8')
                 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
                 logger.addHandler(file_handler)
                 return logger
-            except (IOError, PermissionError) as e:
+            except OSError:
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                 else:
-                    # Log to console that file logging is disabled
-                    logger.warning(f"Could not set up file logging after {max_retries} attempts. Continuing without file logging.")
+                    logger.warning(
+                        "Could not set up file logging (file may be locked by another process). "
+                        "Continuing with console logging only."
+                    )
         return logger
     except Exception as e:
-        # If anything fails during logging setup, set up a basic console logger
         basic_logger = logging.getLogger('ElysiumDependencyManager')
         basic_logger.setLevel(logging.INFO)
         if not basic_logger.handlers:
@@ -261,49 +251,84 @@ def download_icon(url):
 
 def is_git_installed():
     """Check if Git is installed by looking for git.exe in PATH or registry."""
-    logger.info("Checking if Git is installed...")
-    
-    # Method 1: Check if git is in PATH
-    git_in_path = shutil.which('git') is not None
+    return resolve_git_executable() is not None
+
+
+def resolve_git_executable():
+    """Return the full path to git.exe, adding its directory to PATH when found."""
+    git_in_path = shutil.which('git')
     if git_in_path:
-        logger.info("Git found in PATH")
-        return True
-        
-    # Method 2: Check Windows Registry
+        logger.info(f"Git found in PATH: {git_in_path}")
+        return git_in_path
+
+    candidate_paths = [
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files\Git\bin\git.exe",
+        r"C:\Program Files (x86)\Git\cmd\git.exe",
+        r"C:\Program Files (x86)\Git\bin\git.exe",
+    ]
+
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\GitForWindows") as key:
             install_path = winreg.QueryValueEx(key, "InstallPath")[0]
-            logger.info(f"Git found in registry at {install_path}")
-            
-            # Add Git to PATH for this session if it exists but isn't in PATH
-            git_exe = os.path.join(install_path, "bin", "git.exe")
-            if os.path.exists(git_exe):
-                os.environ["PATH"] = os.environ["PATH"] + os.pathsep + os.path.join(install_path, "bin")
-                logger.info("Added Git to PATH for this session")
-                return True
-    except (WindowsError, FileNotFoundError):
-        # Registry key not found, try another location
-        try:
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall") as key:
-                # Iterate through installed programs
-                for i in range(winreg.QueryInfoKey(key)[0]):
-                    try:
-                        subkey_name = winreg.EnumKey(key, i)
-                        with winreg.OpenKey(key, subkey_name) as subkey:
-                            try:
-                                display_name = winreg.QueryValueEx(subkey, "DisplayName")[0]
-                                if "Git" in display_name:
-                                    logger.info(f"Git found in registry: {display_name}")
-                                    return True
-                            except (WindowsError, FileNotFoundError):
-                                continue
-                    except (WindowsError, FileNotFoundError):
-                        continue
-        except (WindowsError, FileNotFoundError):
-            pass
-    
+            candidate_paths.insert(0, os.path.join(install_path, "cmd", "git.exe"))
+            candidate_paths.insert(1, os.path.join(install_path, "bin", "git.exe"))
+    except (WindowsError, FileNotFoundError, OSError):
+        pass
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ) as key:
+            for i in range(winreg.QueryInfoKey(key)[0]):
+                try:
+                    subkey_name = winreg.EnumKey(key, i)
+                    with winreg.OpenKey(key, subkey_name) as subkey:
+                        try:
+                            display_name = winreg.QueryValueEx(subkey, "DisplayName")[0]
+                        except (WindowsError, FileNotFoundError, OSError):
+                            continue
+                        if "Git" not in display_name:
+                            continue
+                        try:
+                            install_location = winreg.QueryValueEx(subkey, "InstallLocation")[0]
+                        except (WindowsError, FileNotFoundError, OSError):
+                            continue
+                        if install_location:
+                            candidate_paths.insert(
+                                0, os.path.join(install_location, "cmd", "git.exe")
+                            )
+                            candidate_paths.insert(
+                                1, os.path.join(install_location, "bin", "git.exe")
+                            )
+                except (WindowsError, FileNotFoundError, OSError):
+                    continue
+    except (WindowsError, FileNotFoundError, OSError):
+        pass
+
+    for git_exe in candidate_paths:
+        if os.path.isfile(git_exe):
+            git_dir = os.path.dirname(git_exe)
+            current_path = os.environ.get("PATH", "")
+            if git_dir.lower() not in current_path.lower():
+                os.environ["PATH"] = git_dir + os.pathsep + current_path
+                logger.info(f"Added Git to PATH for this session: {git_dir}")
+            logger.info(f"Git found at {git_exe}")
+            return git_exe
+
     logger.info("Git not found")
-    return False
+    return None
+
+
+def git_command(*args):
+    """Build a git argv list using the resolved git executable."""
+    git_exe = resolve_git_executable()
+    if not git_exe:
+        raise FileNotFoundError(
+            "Git executable not found. Install Git for Windows from https://git-scm.com/download/win"
+        )
+    return [git_exe, *args]
 
 def find_nodejs_bin_dir():
     """Return the directory containing npm.cmd, or None if not found."""
@@ -418,44 +443,19 @@ def install_git():
             return False
         
         logger.info("Git installation completed successfully")
-        
-        # Update PATH to include Git without requiring restart
-        # Wait a moment for installer to finish writing registry
+
         time.sleep(2)
-        
-        # Try to find Git in common installation locations
-        common_git_paths = [
-            r"C:\Program Files\Git\bin",
-            r"C:\Program Files (x86)\Git\bin"
-        ]
-        
-        # Check registry for installation path
-        try:
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\GitForWindows") as key:
-                install_path = winreg.QueryValueEx(key, "InstallPath")[0]
-                git_bin_path = os.path.join(install_path, "bin")
-                if git_bin_path not in common_git_paths:
-                    common_git_paths.insert(0, git_bin_path)
-        except (WindowsError, FileNotFoundError):
-            pass
-        
-        # Add Git to PATH for current session
-        for git_path in common_git_paths:
-            if os.path.exists(os.path.join(git_path, "git.exe")):
-                os.environ["PATH"] = os.environ["PATH"] + os.pathsep + git_path
-                logger.info(f"Added {git_path} to PATH for current session")
-                break
-        
-        # Clean up
+        git_ready = resolve_git_executable() is not None
+
         try:
             os.remove(installer_path)
             os.rmdir(temp_dir)
             logger.info("Cleaned up temporary files")
         except Exception as e:
             logger.warning(f"Failed to clean up temporary files: {str(e)}")
-        
-        return True
-        
+
+        return git_ready
+
     except Exception as e:
         logger.error(f"Error installing Git: {str(e)}", exc_info=True)
         return False
@@ -589,14 +589,13 @@ class GitUpdateThread(QThread):
                 self.progress_signal.emit(f"Cloning {self.program_name}...")
                 # Use shallow clone (--depth 1) and single branch for faster cloning
                 process = subprocess.Popen(
-                    ['git', 'clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory],
+                    git_command('clone', '--depth', '1', '--single-branch', self.git_repo_url, self.program_directory),
                     stdout=PIPE, stderr=PIPE, universal_newlines=True
                 )
             else:
                 self.progress_signal.emit(f"Updating {self.program_name}...")
-                # Fetch only the latest changes
                 process = subprocess.Popen(
-                    ['git', '-C', self.program_directory, 'pull', '--depth', '1', '--no-tags'],
+                    git_command('-C', self.program_directory, 'pull', '--depth', '1', '--no-tags'),
                     stdout=PIPE, stderr=PIPE, universal_newlines=True
                 )
 
@@ -1579,8 +1578,11 @@ class ProgramUpdater(QWidget):
                 QMessageBox.information(self, 'No Logs', 'No dependency logs found.')
                 return
                 
-            # Sort log files by date (newest first)
-            log_files.sort(reverse=True)
+            # Sort log files by modification time (newest first)
+            log_files.sort(
+                key=lambda name: os.path.getmtime(os.path.join(log_dir, name)),
+                reverse=True,
+            )
             
             # Create a dialog to display logs
             dialog = QDialog(self)
@@ -1592,7 +1594,14 @@ class ProgramUpdater(QWidget):
             # Create a combo box for selecting log files
             log_selector = QComboBox()
             for log_file in log_files:
-                # Extract timestamp from the filename - now with the PID part
+                pid_match = re.match(r'^dependency_log_(\d+)\.log$', log_file)
+                if pid_match:
+                    pid_str = pid_match.group(1)
+                    mtime = os.path.getmtime(os.path.join(log_dir, log_file))
+                    formatted_date = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    log_selector.addItem(f"{formatted_date} (PID: {pid_str})", log_file)
+                    continue
+
                 parts = log_file.replace('dependency_log_', '').replace('.log', '').split('_')
                 if len(parts) >= 2:  # Should have at least timestamp and PID
                     date_str = parts[0]
@@ -1624,11 +1633,20 @@ class ProgramUpdater(QWidget):
                 selected_file = log_selector.currentData()
                 if selected_file:
                     try:
-                        with open(os.path.join(log_dir, selected_file), 'r') as f:
-                            content = f.read()
-                            log_content.setText(content)
+                        log_path = os.path.join(log_dir, selected_file)
+                        try:
+                            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                                content = f.read()
+                        except OSError:
+                            with open(log_path, 'r', encoding='utf-8', errors='replace', buffering=1) as f:
+                                content = f.read()
+                        log_content.setText(content)
                     except Exception as e:
-                        log_content.setText(f"Error loading log file: {str(e)}")
+                        log_content.setText(
+                            f"Error loading log file: {str(e)}\n\n"
+                            "The log may be locked by a running ELYSIUM instance. "
+                            "Close other ELYSIUM windows and try again."
+                        )
             
             # Connect the combo box to the load function
             log_selector.currentIndexChanged.connect(load_log_file)

@@ -8,12 +8,18 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 
 ELYSIUM_REPO = "https://github.com/Protechas/Elysium.git"
 ELYSIUM_DIR = os.path.join(os.path.expanduser("~"), "Documents", "Elysium")
 LOG_DIR = os.path.join(ELYSIUM_DIR, "logs")
 LAUNCHER_LOG = os.path.join(LOG_DIR, "launcher_error.log")
 REQUIRED_PACKAGES = ["PyQt5", "requests", "openpyxl", "setuptools"]
+GIT_INSTALLER_URL = (
+    "https://github.com/git-for-windows/git/releases/download/"
+    "v2.42.0.windows.2/Git-2.42.0.2-64-bit.exe"
+)
 STORE_STUB = os.path.join(
     os.environ.get("LOCALAPPDATA", ""),
     "Microsoft",
@@ -107,26 +113,95 @@ def run_python(python_cmd, args):
     return subprocess.run(python_cmd + args, check=False)
 
 
+def resolve_git_executable():
+    git_exe = shutil.which("git")
+    if git_exe:
+        return git_exe
+
+    candidates = [
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files\Git\bin\git.exe",
+        r"C:\Program Files (x86)\Git\cmd\git.exe",
+        r"C:\Program Files (x86)\Git\bin\git.exe",
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            git_dir = os.path.dirname(path)
+            path_env = os.environ.get("PATH", "")
+            if git_dir.lower() not in path_env.lower():
+                os.environ["PATH"] = git_dir + os.pathsep + path_env
+            return path
+    return None
+
+
+def install_git():
+    temp_dir = tempfile.mkdtemp()
+    installer_path = os.path.join(temp_dir, "git_installer.exe")
+    try:
+        import urllib.request
+
+        urllib.request.urlretrieve(GIT_INSTALLER_URL, installer_path)
+        result = subprocess.run(
+            [
+                installer_path,
+                "/VERYSILENT",
+                "/NORESTART",
+                "/NOCANCEL",
+                "/SP-",
+                "/CLOSEAPPLICATIONS",
+                "/RESTARTAPPLICATIONS",
+                '/COMPONENTS="icons,ext\\reg\\shellhere,assoc,assoc_sh"',
+            ],
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        time.sleep(3)
+        return resolve_git_executable()
+    except Exception:
+        return None
+    finally:
+        try:
+            if os.path.isfile(installer_path):
+                os.remove(installer_path)
+            os.rmdir(temp_dir)
+        except OSError:
+            pass
+
+
+def ensure_git():
+    git_exe = resolve_git_executable()
+    if git_exe:
+        return git_exe
+    return install_git()
+
+
 def sync_repo():
     os.makedirs(ELYSIUM_DIR, exist_ok=True)
-    if not shutil.which("git"):
+    elysium_script = os.path.join(ELYSIUM_DIR, "ELYSIUM.py")
+    git_exe = ensure_git()
+    if not git_exe:
+        if os.path.isfile(elysium_script):
+            return
         raise RuntimeError(
-            "Git is required but was not found.\n\n"
+            "Git is required but was not found and could not be installed.\n\n"
             "Install from: https://git-scm.com/download/win"
         )
 
     git_dir = os.path.join(ELYSIUM_DIR, ".git")
     if os.path.isdir(git_dir):
         result = subprocess.run(
-            ["git", "-C", ELYSIUM_DIR, "pull", "--ff-only"],
+            [git_exe, "-C", ELYSIUM_DIR, "pull", "--ff-only"],
             capture_output=True,
             text=True,
         )
+        if result.returncode != 0 and os.path.isfile(elysium_script):
+            return
     else:
         parent = os.path.dirname(ELYSIUM_DIR)
         folder = os.path.basename(ELYSIUM_DIR)
         result = subprocess.run(
-            ["git", "clone", ELYSIUM_REPO, folder],
+            [git_exe, "clone", ELYSIUM_REPO, folder],
             cwd=parent,
             capture_output=True,
             text=True,
