@@ -76,6 +76,55 @@ def get_crash_log_path():
     return os.path.join(get_log_dir(), 'elysium_crash.log')
 
 
+def _subprocess_no_window_flags():
+    if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+        return subprocess.CREATE_NO_WINDOW
+    return 0
+
+
+def close_other_elysium_instances():
+    """Terminate other running ELYSIUM processes before starting a new instance."""
+    current_pid = os.getpid()
+    logger.info(f"Checking for other ELYSIUM instances (current PID: {current_pid})")
+
+    ps_script = (
+        f"$current = {current_pid}; "
+        "Get-CimInstance Win32_Process | Where-Object { "
+        "$_.ProcessId -ne $current -and ("
+        "($_.CommandLine -and ("
+        "$_.CommandLine -like '*ELYSIUM.py*' -or "
+        "$_.CommandLine -like '*elysium_launcher.py*' -or "
+        "$_.CommandLine -like '*ElysiumLauncher.exe*'"
+        ")) -or $_.Name -eq 'ElysiumLauncher.exe'"
+        ") } | ForEach-Object { "
+        "try { "
+        "Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; "
+        "Write-Output (\"Closed PID \" + $_.ProcessId) "
+        "} catch {} "
+        "}"
+    )
+
+    try:
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=_subprocess_no_window_flags(),
+        )
+        if result.stdout:
+            for line in result.stdout.strip().splitlines():
+                if line.strip():
+                    logger.info(line.strip())
+        if result.returncode != 0 and result.stderr:
+            logger.warning(f"Instance cleanup stderr: {result.stderr.strip()}")
+    except Exception as e:
+        logger.warning(f"Could not close other ELYSIUM instances: {e}")
+        return
+
+    time.sleep(0.5)
+
+
 def restart_application():
     """Restart Elysium after installing dependencies (more reliable than os.execl from EXE wrappers)."""
     subprocess.Popen([sys.executable] + sys.argv, close_fds=False)
@@ -1802,6 +1851,7 @@ def get_user_first_name():
     return "User"
 
 def main():
+    close_other_elysium_instances()
     ensure_elysium_dependencies()
 
     app = QApplication(sys.argv)

@@ -297,10 +297,31 @@ $LauncherLog
     }
 }
 
+function Stop-OtherElysiumInstances {
+    $processes = Get-CimInstance Win32_Process | Where-Object {
+        ($_.CommandLine -and (
+            $_.CommandLine -like '*ELYSIUM.py*' -or
+            $_.CommandLine -like '*elysium_launcher.py*' -or
+            $_.CommandLine -like '*ElysiumLauncher.exe*'
+        )) -or $_.Name -eq 'ElysiumLauncher.exe'
+    }
+
+    foreach ($proc in $processes) {
+        Write-Host "Closing existing ELYSIUM process (PID $($proc.ProcessId))..."
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($processes) {
+        Start-Sleep -Milliseconds 500
+    }
+}
+
 try {
     Write-Host "ELYSIUM Launcher"
     Write-Host "================"
     Write-Host ""
+
+    Stop-OtherElysiumInstances
 
     $python = Find-Python
     if (-not $python) {

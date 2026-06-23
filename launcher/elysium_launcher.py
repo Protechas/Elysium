@@ -45,6 +45,33 @@ def write_log(message):
         pass
 
 
+def close_other_elysium_instances():
+    current_pid = os.getpid()
+    ps_script = (
+        f"$current = {current_pid}; "
+        "Get-CimInstance Win32_Process | Where-Object { "
+        "$_.ProcessId -ne $current -and ("
+        "($_.CommandLine -and ("
+        "$_.CommandLine -like '*ELYSIUM.py*' -or "
+        "$_.CommandLine -like '*elysium_launcher.py*' -or "
+        "$_.CommandLine -like '*ElysiumLauncher.exe*'"
+        ")) -or $_.Name -eq 'ElysiumLauncher.exe'"
+        ") } | ForEach-Object { "
+        "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue "
+        "}"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            check=False,
+            timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+
 def is_real_python(python_exe):
     if not os.path.isfile(python_exe):
         return False
@@ -238,6 +265,7 @@ def install_dependencies(python_cmd):
 
 def main():
     try:
+        close_other_elysium_instances()
         python_cmd = find_python()
         if not python_cmd:
             raise RuntimeError(
