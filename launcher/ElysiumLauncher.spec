@@ -1,14 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Build with: pyinstaller launcher/ElysiumLauncher.spec
+# Build with: .\build.ps1
+# Produces dist\ELYSIUM.exe — replacement for the legacy Desktop bootstrap.
+
+import os
+
+launcher_dir = SPECPATH
+repo_dir = os.path.dirname(SPECPATH)
 
 block_cipher = None
 
 a = Analysis(
-    ['launcher/elysium_launcher.py'],
-    pathex=[],
+    [os.path.join(launcher_dir, 'elysium_launcher.py')],
+    pathex=[repo_dir],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=[(os.path.join(launcher_dir, 'stop-flow.ps1'), 'launcher')],
+    hiddenimports=['elysium.bootstrap.repo_sync'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -28,14 +34,14 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ElysiumLauncher',
+    name='ELYSIUM',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

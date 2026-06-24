@@ -1,11 +1,13 @@
-# Elysium
+# Elysium 1.5
 
 ELYSIUM is a Windows launcher GUI that updates and runs custom programs developed by Protech Automotive Solutions.
+
+**Version 1.5** adds manifest-driven apps, dual-path install support, rotating logs, visible diagnostics, and the `elysium/` service package for Elysium 2.
 
 ## System requirements
 
 - Windows 10 or Windows 11 (64-bit)
-- Python 3.10 or newer (3.11 recommended), **or** use `ElysiumLauncher.exe` after building it
+- Python 3.10 or newer (3.11 recommended) — **not required** if using the rebuilt `ELYSIUM.exe` (embedded Python)
 - Git for Windows (for downloading and updating programs)
 - Internet access (GitHub, PyPI)
 - Node.js (only required to run the **Flow** program)
@@ -19,7 +21,7 @@ ELYSIUM is a Windows launcher GUI that updates and runs custom programs develope
 The launcher will:
 
 - Find a working Python installation
-- Clone or update ELYSIUM into `%USERPROFILE%\Documents\Elysium`
+- Clone or update ELYSIUM into your active install directory (legacy `%USERPROFILE%\Documents\Elysium` or new `%LOCALAPPDATA%\Protech\Elysium`)
 - Install required Python packages if missing
 - Start the ELYSIUM GUI
 
@@ -52,19 +54,50 @@ Install manually if needed:
 pip install -r requirements.txt
 ```
 
-Packages: `PyQt5`, `requests`, `openpyxl`, `setuptools`
+Packages: `PyQt5`, `requests`, `openpyxl`, `setuptools`, `platformdirs`, `pydantic`, `pyyaml`
 
-## Building the EXE launcher
+## Building / replacing ELYSIUM.exe
 
-For users who expect a `.exe` instead of a batch file:
+The legacy Desktop `ELYSIUM.exe` (April 2024) is a frozen PyInstaller build that uses outdated startup code (`where git`, old error handling). **Replace it** with a new build from this repo:
 
 ```powershell
 .\build.ps1
 ```
 
-This creates `dist\ElysiumLauncher.exe`, which finds Python on the machine, syncs the repo, installs dependencies, and starts ELYSIUM.
+This creates `dist\ELYSIUM.exe`, which:
 
-> Note: `ElysiumLauncher.exe` still requires Python and Git to be installed on the target PC. It replaces opaque external bootstrap EXEs with a maintained launcher that shows clear errors instead of flashing closed.
+1. Shows "Starting ELYSIUM..."
+2. Closes stale ELYSIUM / Flow processes
+3. Git-pulls the latest code into your resolved Elysium base directory
+4. Installs Python packages into the embedded runtime
+5. Runs `ELYSIUM.py` from the resolved install path (always the latest git version)
+
+### Diagnostics (1.5+)
+
+The main window includes **Logs** and **Export Diagnostics** buttons. Export creates a zip with logs, settings, manifest, and system info under `logs/`.
+
+### Per-app isolated environments (optional)
+
+Enable in `settings.json`:
+
+```json
+{
+  "use_isolated_envs": true,
+  "isolated_env_apps": ["dfr"]
+}
+```
+
+When enabled, DFR launches from an isolated venv at `%LOCALAPPDATA%\Protech\Elysium\envs\dfr\`.
+
+Distribute `dist\ELYSIUM.exe` to users in place of the old Desktop executable.
+
+### Alternative: LaunchElysium.bat
+
+For development or when a system Python install is preferred, use **`LaunchElysium.bat`** instead of the EXE.
+
+## Building the EXE launcher (legacy note)
+
+`build.ps1` now outputs **`ELYSIUM.exe`** directly (not `ElysiumLauncher.exe`).
 
 ## Troubleshooting
 

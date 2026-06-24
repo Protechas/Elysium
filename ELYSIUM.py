@@ -4,54 +4,92 @@ import datetime
 import time
 import sys
 
-# Set up basic logging first - MUST BE BEFORE ANY OTHER IMPORTS OR OPERATIONS
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_repo_bootstrap_module():
+    bootstrap_path = os.path.join(_REPO_ROOT, "elysium", "bootstrap", "repo_sync.py")
+    if not os.path.isfile(bootstrap_path):
+        return None
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("elysium_bootstrap_repo_sync", bootstrap_path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _minimal_repo_bootstrap(entry_script: str) -> str:
+    """
+    First-run bootstrap when only ELYSIUM.py is present locally.
+
+    Fetches the bootstrap module from GitHub over HTTPS, syncs the full repo,
+    then re-launches from the install directory — matching the legacy EXE flow.
+    """
+    import importlib.util
+    import urllib.request
+    import tempfile
+
+    url = (
+        "https://raw.githubusercontent.com/Protechas/Elysium/main/"
+        "elysium/bootstrap/repo_sync.py"
+    )
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as handle:
+        temp_path = handle.name
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "Elysium-Bootstrap"})
+        with urllib.request.urlopen(request, timeout=120) as response:
+            with open(temp_path, "wb") as out:
+                out.write(response.read())
+        spec = importlib.util.spec_from_file_location("elysium_bootstrap_repo_sync_web", temp_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Could not load bootstrap module from GitHub.")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.ensure_runtime_ready(entry_script)
+    finally:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+
+
+def _ensure_repo_runtime() -> str:
+    global _REPO_ROOT
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+
+    bootstrap = _load_repo_bootstrap_module()
+    if bootstrap is not None:
+        _REPO_ROOT = bootstrap.ensure_runtime_ready(__file__)
+    elif os.path.isdir(os.path.join(_REPO_ROOT, "elysium")):
+        from elysium.bootstrap.repo_sync import ensure_runtime_ready
+
+        _REPO_ROOT = ensure_runtime_ready(__file__)
+    else:
+        _REPO_ROOT = _minimal_repo_bootstrap(__file__)
+
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    return _REPO_ROOT
+
+
+_REPO_ROOT = _ensure_repo_runtime()
+
+
 def setup_logging():
     logging.raiseExceptions = False
-    try:
-        # Initialize logger with just a console handler first
-        logger = logging.getLogger('ElysiumDependencyManager')
-        logger.setLevel(logging.INFO)
+    logger = logging.getLogger('ElysiumDependencyManager')
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        logger.addHandler(console_handler)
+    return logger
 
-        # Prevent duplicate handlers
-        if not logger.handlers:
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-            logger.addHandler(console_handler)
 
-        log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
-        os.makedirs(log_dir, exist_ok=True)
-
-        # One log file per process avoids collisions when multiple instances start
-        log_file = os.path.join(log_dir, f'dependency_log_{os.getpid()}.log')
-        max_retries = 3
-        retry_delay = 1
-
-        for attempt in range(max_retries):
-            try:
-                file_handler = logging.FileHandler(log_file, delay=True, encoding='utf-8')
-                file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-                logger.addHandler(file_handler)
-                return logger
-            except OSError:
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                else:
-                    logger.warning(
-                        "Could not set up file logging (file may be locked by another process). "
-                        "Continuing with console logging only."
-                    )
-        return logger
-    except Exception as e:
-        basic_logger = logging.getLogger('ElysiumDependencyManager')
-        basic_logger.setLevel(logging.INFO)
-        if not basic_logger.handlers:
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-            basic_logger.addHandler(console_handler)
-        basic_logger.warning(f"Failed to set up full logging system: {str(e)}. Continuing with console logging only.")
-        return basic_logger
-
-# Set up logging immediately
 logger = setup_logging()
 
 # Stdlib only until third-party dependencies are verified
@@ -66,181 +104,10 @@ import traceback
 from subprocess import Popen, PIPE
 
 
-def get_log_dir():
-    log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    return log_dir
-
-
-def get_crash_log_path():
-    return os.path.join(get_log_dir(), 'elysium_crash.log')
-
-
 def _subprocess_no_window_flags():
     if hasattr(subprocess, 'CREATE_NO_WINDOW'):
         return subprocess.CREATE_NO_WINDOW
     return 0
-
-
-def close_other_elysium_instances():
-    """Terminate other running ELYSIUM processes before starting a new instance."""
-    current_pid = os.getpid()
-    logger.info(f"Checking for other ELYSIUM instances (current PID: {current_pid})")
-
-    ps_script = (
-        f"$current = {current_pid}; "
-        "Get-CimInstance Win32_Process | Where-Object { "
-        "$_.ProcessId -ne $current -and ("
-        "($_.CommandLine -and ("
-        "$_.CommandLine -like '*ELYSIUM.py*' -or "
-        "$_.CommandLine -like '*elysium_launcher.py*' -or "
-        "$_.CommandLine -like '*ElysiumLauncher.exe*'"
-        ")) -or $_.Name -eq 'ElysiumLauncher.exe'"
-        ") } | ForEach-Object { "
-        "try { "
-        "Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; "
-        "Write-Output (\"Closed PID \" + $_.ProcessId) "
-        "} catch {} "
-        "}"
-    )
-
-    try:
-        result = subprocess.run(
-            ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_script],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            creationflags=_subprocess_no_window_flags(),
-        )
-        if result.stdout:
-            for line in result.stdout.strip().splitlines():
-                if line.strip():
-                    logger.info(line.strip())
-        if result.returncode != 0 and result.stderr:
-            logger.warning(f"Instance cleanup stderr: {result.stderr.strip()}")
-    except Exception as e:
-        logger.warning(f"Could not close other ELYSIUM instances: {e}")
-        return
-
-    time.sleep(0.5)
-
-
-def get_flow_base_dir():
-    return os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'Flow')
-
-
-def get_stop_flow_script_path():
-    elysium_dir = os.path.dirname(os.path.abspath(__file__))
-    script_path = os.path.join(elysium_dir, 'launcher', 'stop-flow.ps1')
-    if os.path.isfile(script_path):
-        return script_path
-    return None
-
-
-def stop_flow_server():
-    """Stop stale Flow dev server processes and release server.log locks."""
-    flow_dir = get_flow_base_dir()
-    if not os.path.isdir(os.path.join(flow_dir, 'launcher')):
-        return
-
-    logger.info("Stopping any stale Flow server processes")
-    stop_script = get_stop_flow_script_path()
-
-    try:
-        if stop_script:
-            result = subprocess.run(
-                [
-                    'powershell', '-NoProfile', '-NonInteractive',
-                    '-ExecutionPolicy', 'Bypass', '-File', stop_script,
-                    '-FlowDir', flow_dir,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                creationflags=_subprocess_no_window_flags(),
-            )
-            if result.stdout:
-                logger.info(result.stdout.strip())
-            if result.returncode != 0 and result.stderr:
-                logger.warning(f"Flow cleanup stderr: {result.stderr.strip()}")
-        else:
-            flow_escaped = flow_dir.replace("'", "''")
-            ps_script = (
-                f"$FlowDir = '{flow_escaped}'; "
-                "$PidFile = Join-Path $FlowDir 'launcher\\logs\\server.pid'; "
-                "$ServerLog = Join-Path $FlowDir 'launcher\\logs\\server.log'; "
-                "$Port = 3000; "
-                "if (Test-Path $PidFile) { "
-                "$p = Get-Content $PidFile -EA SilentlyContinue; "
-                "if ($p) { Stop-Process -Id $p -Force -EA SilentlyContinue }; "
-                "Remove-Item $PidFile -Force -EA SilentlyContinue }; "
-                "1..4 | ForEach-Object { "
-                "$c = Get-NetTCPConnection -LocalPort $Port -State Listen -EA SilentlyContinue | Select -First 1; "
-                "if (-not $c) { return }; "
-                "Stop-Process -Id $c.OwningProcess -Force -EA SilentlyContinue; "
-                "Start-Sleep -Milliseconds 500 }; "
-                "if (Test-Path $ServerLog) { Remove-Item $ServerLog -Force -EA SilentlyContinue }"
-            )
-            subprocess.run(
-                ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_script],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                creationflags=_subprocess_no_window_flags(),
-            )
-    except Exception as e:
-        logger.warning(f"Could not stop Flow server: {e}")
-
-    time.sleep(0.5)
-
-
-def patch_flow_launcher(flow_dir):
-    """Patch Flow launcher to stop stale servers before writing server.log."""
-    ps1_path = os.path.join(flow_dir, 'launcher', 'launch-flow.ps1')
-    if not os.path.isfile(ps1_path):
-        return
-
-    try:
-        with open(ps1_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        patch_marker = 'Stop-FlowServer\n    if (Test-Path $ServerLog)'
-        if patch_marker in content:
-            return
-
-        old_block = (
-            "function Start-FlowServer {\n"
-            "    Ensure-Dependencies\n"
-            "\n"
-            "    # Dev mode keeps client bundles in sync with source (production start can break clicks)."
-        )
-        new_block = (
-            "function Start-FlowServer {\n"
-            "    Stop-FlowServer\n"
-            "    if (Test-Path $ServerLog) {\n"
-            "        Remove-Item $ServerLog -Force -ErrorAction SilentlyContinue\n"
-            "    }\n"
-            "    Ensure-Dependencies\n"
-            "\n"
-            "    # Dev mode keeps client bundles in sync with source (production start can break clicks)."
-        )
-
-        if old_block not in content:
-            logger.warning("Flow launcher patch skipped: Start-FlowServer block not found")
-            return
-
-        with open(ps1_path, 'w', encoding='utf-8') as f:
-            f.write(content.replace(old_block, new_block, 1))
-        logger.info("Patched Flow launcher to release server.log before startup")
-    except OSError as e:
-        logger.warning(f"Could not patch Flow launcher: {e}")
-
-
-def close_stale_application_state():
-    """Close duplicate ELYSIUM windows and stale Flow servers from prior sessions."""
-    close_other_elysium_instances()
-    stop_flow_server()
-    patch_flow_launcher(get_flow_base_dir())
 
 
 def restart_application():
@@ -298,9 +165,13 @@ def check_and_install_elysium_dependencies():
     # List of required packages for Elysium itself
     required_packages = [
         "PyQt5",
+        "PySide6",
         "requests",
         "openpyxl",
-        "setuptools",  # Required for pkg_resources
+        "setuptools",
+        "platformdirs",
+        "pydantic",
+        "pyyaml",
     ]
 
     missing_packages = []
@@ -308,8 +179,12 @@ def check_and_install_elysium_dependencies():
         try:
             if package == "PyQt5":
                 __import__("PyQt5.QtCore")
+            elif package == "PySide6":
+                __import__("PySide6.QtCore")
             elif package == "setuptools":
                 __import__("pkg_resources")
+            elif package == "pyyaml":
+                __import__("yaml")
             else:
                 __import__(package)
             logger.info(f"Package already installed: {package}")
@@ -371,8 +246,12 @@ def ensure_elysium_dependencies():
     try:
         __import__("requests")
         __import__("PyQt5.QtCore")
+        __import__("PySide6.QtCore")
         __import__("openpyxl")
         __import__("pkg_resources")
+        __import__("platformdirs")
+        __import__("pydantic")
+        __import__("yaml")
         logger.info("All required packages are already installed")
         return True
     except ImportError as e:
@@ -382,7 +261,7 @@ def ensure_elysium_dependencies():
             print("Dependencies installed successfully. Launching Elysium...")
             restart_application()
         else:
-            manual_cmd = "pip install PyQt5 requests openpyxl setuptools"
+            manual_cmd = "pip install PyQt5 PySide6 requests openpyxl setuptools platformdirs pydantic pyyaml"
             print("Failed to install dependencies. Please install them manually:")
             print(manual_cmd)
             show_fatal_error(
@@ -395,107 +274,117 @@ def ensure_elysium_dependencies():
 
 ensure_elysium_dependencies()
 
+from elysium.core.paths import get_crash_log_path
+
+
+def _should_launch_qml_ui() -> bool:
+    """Use the QML shell unless legacy is forced or disabled in settings."""
+    if os.environ.get("ELYSIUM_FORCE_LEGACY") == "1":
+        return False
+    try:
+        from elysium.core.settings import load_settings
+
+        return bool(load_settings().get("use_qml_ui", True))
+    except Exception:
+        return True
+
+
+if __name__ == "__main__" and _should_launch_qml_ui():
+    bootstrap_startup()
+    try:
+        from elysium.main import main as run_qml_main
+
+        sys.exit(run_qml_main())
+    except Exception as exc:
+        crash_log = get_crash_log_path()
+        tb_text = traceback.format_exc()
+        try:
+            with open(crash_log, "a", encoding="utf-8") as f:
+                f.write(f"\n{'=' * 60}\n")
+                f.write(datetime.datetime.now().isoformat() + "\n")
+                f.write(tb_text)
+        except Exception:
+            pass
+        logger.error("QML launch failed, falling back to legacy UI: %s", tb_text)
+        os.environ["ELYSIUM_FORCE_LEGACY"] = "1"
+        print(f"QML UI failed ({exc}). Falling back to classic UI...", file=sys.stderr)
+
+from elysium import __version__ as ELYSIUM_VERSION
+from elysium.core.logging_config import setup_dependency_logger
+from elysium.core.paths import get_base_dir, get_logs_dir, resolve_app_dir
+from elysium.core.settings import load_settings
+from elysium.core.exceptions import ElysiumError, NodeMissingError
+from elysium.services.app_registry import AppRegistry
+from elysium.services.diagnostics_service import export_diagnostics
+from elysium.services.environment_service import should_use_isolated_env
+from elysium.services.git_service import is_git_installed, resolve_git_executable, git_command
+from elysium.services.launcher_service import LauncherService
+from elysium.services.process_service import (
+    close_stale_application_state,
+    patch_flow_launcher,
+    stop_flow_server,
+)
+from elysium.windows.titlebar import apply_native_title_bar_theme
+
+logger = setup_dependency_logger()
+
 import requests
 import openpyxl
 import pkg_resources
 from pkg_resources import DistributionNotFound, VersionConflict
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QRect, QThread, QTimer
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout, QSlider, QProgressBar, QDialog, QTextEdit, QComboBox, QShortcut
-from PyQt5.QtGui import QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath, QFontMetrics, QKeySequence
+from PyQt5.QtWidgets import (
+    QApplication, QHBoxLayout, QWidget, QVBoxLayout, QLabel, QPushButton,
+    QListWidget, QListWidgetItem, QMessageBox, QToolButton, QGridLayout,
+    QSlider, QProgressBar, QDialog, QTextEdit, QComboBox, QFrame, QScrollArea,
+)
+from PyQt5.QtGui import (
+    QColor, QPixmap, QIcon, QPainter, QFont, QLinearGradient, QPainterPath,
+    QFontMetrics, QPen, QBrush, QPalette,
+)
 
-def download_icon(url):
+from elysium.ui.theme import (
+    APP_CARD_HEIGHT,
+    APP_CARD_PADDING,
+    APP_CARD_WIDTH,
+    APP_GRID_COLUMNS,
+    APP_GRID_SPACING_H,
+    APP_GRID_SPACING_V,
+    THEME_DARK,
+    THEME_LIGHT,
+    UI_FONT,
+    apps_grid_minimum_size as _apps_grid_minimum_size,
+    build_main_stylesheet,
+    build_scroll_stylesheet,
+    status_colors as _status_colors,
+)
+
+
+def _set_widget_background(widget, color):
+    widget.setAutoFillBackground(True)
+    palette = widget.palette()
+    palette.setColor(QPalette.Window, QColor(color))
+    widget.setPalette(palette)
+
+
+ICON_DOWNLOAD_TIMEOUT = 8
+
+
+def download_icon(url, base_dir=None):
     try:
-        filename = url.split('/')[-1]  # Extracts file name from URL
-        local_path = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', filename)
-        response = requests.get(url)
-        response.raise_for_status()  # Raises HTTPError for bad responses
+        filename = url.split('/')[-1]
+        local_path = os.path.join(base_dir or get_base_dir(), filename)
+        if os.path.exists(local_path):
+            return local_path
+        response = requests.get(url, timeout=ICON_DOWNLOAD_TIMEOUT)
+        response.raise_for_status()
         with open(local_path, 'wb') as f:
             f.write(response.content)
         return local_path
     except requests.RequestException as e:
-        print(f"Failed to download icon: {e}")
+        logger.warning("Failed to download icon from %s: %s", url, e)
         return None
 
-def is_git_installed():
-    """Check if Git is installed by looking for git.exe in PATH or registry."""
-    return resolve_git_executable() is not None
-
-
-def resolve_git_executable():
-    """Return the full path to git.exe, adding its directory to PATH when found."""
-    git_in_path = shutil.which('git')
-    if git_in_path:
-        logger.info(f"Git found in PATH: {git_in_path}")
-        return git_in_path
-
-    candidate_paths = [
-        r"C:\Program Files\Git\cmd\git.exe",
-        r"C:\Program Files\Git\bin\git.exe",
-        r"C:\Program Files (x86)\Git\cmd\git.exe",
-        r"C:\Program Files (x86)\Git\bin\git.exe",
-    ]
-
-    try:
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\GitForWindows") as key:
-            install_path = winreg.QueryValueEx(key, "InstallPath")[0]
-            candidate_paths.insert(0, os.path.join(install_path, "cmd", "git.exe"))
-            candidate_paths.insert(1, os.path.join(install_path, "bin", "git.exe"))
-    except (WindowsError, FileNotFoundError, OSError):
-        pass
-
-    try:
-        with winreg.OpenKey(
-            winreg.HKEY_LOCAL_MACHINE,
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
-        ) as key:
-            for i in range(winreg.QueryInfoKey(key)[0]):
-                try:
-                    subkey_name = winreg.EnumKey(key, i)
-                    with winreg.OpenKey(key, subkey_name) as subkey:
-                        try:
-                            display_name = winreg.QueryValueEx(subkey, "DisplayName")[0]
-                        except (WindowsError, FileNotFoundError, OSError):
-                            continue
-                        if "Git" not in display_name:
-                            continue
-                        try:
-                            install_location = winreg.QueryValueEx(subkey, "InstallLocation")[0]
-                        except (WindowsError, FileNotFoundError, OSError):
-                            continue
-                        if install_location:
-                            candidate_paths.insert(
-                                0, os.path.join(install_location, "cmd", "git.exe")
-                            )
-                            candidate_paths.insert(
-                                1, os.path.join(install_location, "bin", "git.exe")
-                            )
-                except (WindowsError, FileNotFoundError, OSError):
-                    continue
-    except (WindowsError, FileNotFoundError, OSError):
-        pass
-
-    for git_exe in candidate_paths:
-        if os.path.isfile(git_exe):
-            git_dir = os.path.dirname(git_exe)
-            current_path = os.environ.get("PATH", "")
-            if git_dir.lower() not in current_path.lower():
-                os.environ["PATH"] = git_dir + os.pathsep + current_path
-                logger.info(f"Added Git to PATH for this session: {git_dir}")
-            logger.info(f"Git found at {git_exe}")
-            return git_exe
-
-    logger.info("Git not found")
-    return None
-
-
-def git_command(*args):
-    """Build a git argv list using the resolved git executable."""
-    git_exe = resolve_git_executable()
-    if not git_exe:
-        raise FileNotFoundError(
-            "Git executable not found. Install Git for Windows from https://git-scm.com/download/win"
-        )
-    return [git_exe, *args]
 
 def find_nodejs_bin_dir():
     """Return the directory containing npm.cmd, or None if not found."""
@@ -628,16 +517,27 @@ def install_git():
         return False
 
 class ProgramIcon(QWidget):
-    clicked = pyqtSignal(str)  # Emit the program name as a signal argument
+    clicked = pyqtSignal(str)
 
-    def __init__(self, program, icon_path, icon_size=(70, 70)):
+    def __init__(self, program, icon_path, icon_size=(64, 64), status_text="", dark=True):
         super().__init__()
         self.program = program
         self.icon_path = icon_path
-        self.icon_size = icon_size  # Added icon_size parameter
+        self.icon_size = icon_size
+        self.status_text = status_text
         self.highlight = False
-        self.setFixedSize(100, 120)  # Increased height to accommodate program name
+        self._dark = dark
+        self._cached_pixmap = None
+        self.setFixedSize(APP_CARD_WIDTH, APP_CARD_HEIGHT)
         self.setCursor(Qt.PointingHandCursor)
+
+    def set_dark_mode(self, dark):
+        self._dark = dark
+        self.update()
+
+    def set_status(self, status_text):
+        self.status_text = status_text
+        self.update()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -651,12 +551,24 @@ class ProgramIcon(QWidget):
         self.highlight = False
         self.update()
 
+    def set_icon_path(self, icon_path):
+        self.icon_path = icon_path
+        self._cached_pixmap = None
+        self.update()
+
     def _load_icon_pixmap(self):
+        if self._cached_pixmap is not None and not self._cached_pixmap.isNull():
+            return self._cached_pixmap
+        if not self.icon_path:
+            self._cached_pixmap = QPixmap()
+            return self._cached_pixmap
+
         icon = QIcon(self.icon_path)
         source = icon.pixmap(QSize(256, 256))
         if source.isNull():
             source = QPixmap(self.icon_path)
         if source.isNull():
+            self._cached_pixmap = source
             return source
 
         image = source.toImage().convertToFormat(source.toImage().Format_ARGB32)
@@ -677,35 +589,84 @@ class ProgramIcon(QWidget):
         if found_pixels:
             source = source.copy(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
 
-        return source.scaled(
+        self._cached_pixmap = source.scaled(
             QSize(*self.icon_size),
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation,
         )
+        return self._cached_pixmap
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        pixmap = self._load_icon_pixmap()
+        painter.setRenderHint(QPainter.Antialiasing)
 
+        theme = THEME_DARK if self._dark else THEME_LIGHT
+        card_rect = QRect(
+            APP_CARD_PADDING,
+            APP_CARD_PADDING,
+            self.width() - (APP_CARD_PADDING * 2),
+            self.height() - (APP_CARD_PADDING * 2),
+        )
+        border_color = QColor(theme["border_active"] if self.highlight else theme["border"])
         if self.highlight:
-            highlight_gradient = QColor(0, 128, 128)  # Teal color
-            gradient_rect = event.rect()
-            gradient_rect.setHeight(20)  # Height of the gradient border
-            gradient = QLinearGradient(gradient_rect.topLeft(), gradient_rect.bottomLeft())
-            gradient.setColorAt(0, highlight_gradient)
-            gradient.setColorAt(1, QColor(0, 0, 0, 0))  # Fully transparent color
-            painter.fillRect(gradient_rect, gradient)
+            top = QColor(theme["surface_hover"])
+            bottom = QColor(theme["card_top"])
+        else:
+            top = QColor(theme["card_top"])
+            bottom = QColor(theme["card_bottom"])
 
-        # Center the pixmap in the icon area above the label
-        icon_area_height = 75
-        pixmap_x = (self.width() - pixmap.width()) // 2
-        pixmap_y = 5 + max(0, (icon_area_height - pixmap.height()) // 2)
-        painter.drawPixmap(pixmap_x, pixmap_y, pixmap)
+        card_gradient = QLinearGradient(card_rect.topLeft(), card_rect.bottomLeft())
+        card_gradient.setColorAt(0, top)
+        card_gradient.setColorAt(1, bottom)
 
-        # Draw program name below the icon
-        painter.setFont(QFont('Arial', 10))
-        text_rect = QRect(0, 80, self.width(), 40)
-        painter.drawText(text_rect, Qt.AlignCenter, self.program)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(card_gradient)
+        painter.drawRoundedRect(card_rect, 12, 12)
+
+        pen = QPen(border_color)
+        pen.setWidth(2 if self.highlight else 1)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(card_rect, 12, 12)
+
+        pixmap = self._load_icon_pixmap()
+        icon_area_height = 72
+        icon_top = card_rect.top() + 10
+
+        if pixmap.isNull():
+            painter.setFont(QFont(UI_FONT, 16, QFont.Bold))
+            painter.setPen(QColor(theme["accent"]))
+            initials = ''.join(word[0] for word in self.program.split()[:2]).upper()
+            painter.drawText(
+                QRect(card_rect.left(), icon_top, card_rect.width(), icon_area_height),
+                Qt.AlignCenter,
+                initials or "?",
+            )
+        else:
+            pixmap_x = card_rect.left() + (card_rect.width() - pixmap.width()) // 2
+            pixmap_y = icon_top + max(0, (icon_area_height - pixmap.height()) // 2)
+            painter.drawPixmap(pixmap_x, pixmap_y, pixmap)
+
+        painter.setFont(QFont(UI_FONT, 9, QFont.DemiBold))
+        painter.setPen(QColor(theme["text"]))
+        name_rect = QRect(card_rect.left() + 4, card_rect.top() + 88, card_rect.width() - 8, 28)
+        painter.drawText(name_rect, Qt.AlignCenter | Qt.TextWordWrap, self.program)
+
+        if self.status_text:
+            bg, fg = _status_colors(self.status_text)
+            painter.setFont(QFont(UI_FONT, 8, QFont.Medium))
+            metrics = QFontMetrics(painter.font())
+            badge_text = self.status_text
+            badge_w = min(metrics.horizontalAdvance(badge_text) + 16, card_rect.width() - 12)
+            badge_h = 18
+            badge_x = card_rect.left() + (card_rect.width() - badge_w) // 2
+            badge_y = card_rect.bottom() - badge_h - 10
+            badge_rect = QRect(badge_x, badge_y, badge_w, badge_h)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(bg))
+            painter.drawRoundedRect(badge_rect, 9, 9)
+            painter.setPen(QColor(fg))
+            painter.drawText(badge_rect, Qt.AlignCenter, badge_text)
  
 class RoundedTextLabel(QWidget):
     def __init__(self, text, parent=None):
@@ -739,6 +700,115 @@ class RoundedTextLabel(QWidget):
  
         painter.end()
  
+class IconDownloadThread(QThread):
+    finished_signal = pyqtSignal(str, str)
+
+    def __init__(self, program_name, icon_url, base_dir):
+        super().__init__()
+        self.program_name = program_name
+        self.icon_url = icon_url
+        self.base_dir = base_dir
+
+    def run(self):
+        icon_path = download_icon(self.icon_url, base_dir=self.base_dir)
+        if icon_path:
+            self.finished_signal.emit(self.program_name, icon_path)
+
+
+class StartupInitThread(QThread):
+    """Run blocking startup cleanup off the UI thread."""
+    status_signal = pyqtSignal(str, int)
+    finished_signal = pyqtSignal()
+
+    def run(self):
+        try:
+            self.status_signal.emit("Closing previous sessions...", 15)
+            close_stale_application_state()
+            self.status_signal.emit("Preparing workspace...", 55)
+            AppRegistry()
+            self.status_signal.emit("Finishing setup...", 85)
+        except Exception as exc:
+            logger.warning("Startup cleanup encountered an issue: %s", exc)
+        self.finished_signal.emit()
+
+
+class StartupSplash(QWidget):
+    """Lightweight splash shown while startup work runs."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Dialog)
+        self.setFixedSize(460, 260)
+        self.setStyleSheet(f"""
+            QWidget {{
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #0a0f18, stop:1 #05070b
+                );
+                color: #f1f5f9;
+                font-family: "{UI_FONT}";
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(32, 32, 32, 32)
+        layout.setSpacing(12)
+
+        title = QLabel("ELYSIUM")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            'font-size: 34px; font-weight: 700; color: #3ee0cf; letter-spacing: 3px;'
+        )
+        layout.addWidget(title)
+
+        subtitle = QLabel(f"Version {ELYSIUM_VERSION}")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet("font-size: 12px; color: #64748b;")
+        layout.addWidget(subtitle)
+
+        layout.addSpacing(12)
+
+        self.status_label = QLabel("Starting...")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("font-size: 13px; color: #94a3b8;")
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                border-radius: 4px;
+                background-color: #1e293b;
+            }
+            QProgressBar::chunk {
+                background-color: #3ee0cf;
+                border-radius: 4px;
+            }
+        """)
+        layout.addWidget(self.progress_bar)
+
+        hint = QLabel("Initializing launcher")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setStyleSheet("font-size: 10px; color: #475569;")
+        layout.addWidget(hint)
+
+    def center_on_screen(self, app):
+        screen = app.primaryScreen().geometry()
+        self.move(
+            screen.x() + (screen.width() - self.width()) // 2,
+            screen.y() + (screen.height() - self.height()) // 2,
+        )
+
+    def set_progress(self, message, percent):
+        self.status_label.setText(message)
+        self.progress_bar.setValue(max(0, min(100, percent)))
+        QApplication.processEvents()
+
+
 class GitUpdateThread(QThread):
     progress_signal = pyqtSignal(str)
     finished_signal = pyqtSignal()
@@ -1014,302 +1084,171 @@ class GitUpdateThread(QThread):
             return False, str(e)
 
 class ProgramUpdater(QWidget):
-    light_style = '''
-        QWidget {
-            background-color: #eee;
-            color: #222;
-        }
- 
-        QLabel {
-            color: #000000;  /* Dark blue text */
-        }
- 
-        QToolButton {
-            background-color: #0066cc;  /* Dark blue background */
-            color: #eee;  /* Light text */
-            border: 2px solid #0066cc;  /* Dark blue border */
-            border-radius: 10px;  /* Border radius for a "pop" effect */
-            padding: 10px;  /* Increased padding for a "pop" effect */
-            margin: 5px;
-        }
- 
-        QToolButton:hover {
-            background-color: #004080;  /* Darker blue on hover */
-            border: 2px solid #004080;  /* Darker blue border on hover */
-        }
-    '''
- 
-    dark_style = '''
-        QWidget {
-            background-color: #222;
-            color: #eee;
-        }
- 
-        QLabel {
-            color: #008080;  /* Light blue text */
-        }
- 
-        QToolButton {
-            background-color: #66ccff;  /* Light blue background */
-            color: #222;  /* Dark text */
-            border: 2px solid #66ccff;  /* Light blue border */
-            border-radius: 10px;  /* Border radius for a "pop" effect */
-            padding: 10px;  /* Increased padding for a "pop" effect */
-            margin: 5px;
-        }
- 
-        QToolButton:hover {
-            background-color: #3385ff;  /* Lighter blue on hover */
-            border: 2px solid #3385ff;  /* Lighter blue border on hover */
-        }
-    '''
-
-    def __init__(self):
+    def __init__(self, defer_app_status=False):
         super().__init__()
-        self.base_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium')
-        if not os.path.exists(self.base_dir):
-            os.makedirs(self.base_dir)
+        self.setObjectName("elysiumMain")
+        self._dark_mode = True
+        self._defer_app_status = defer_app_status
+        self.base_dir = get_base_dir()
+        self.app_registry = AppRegistry()
+        self.launcher_service = LauncherService(self.app_registry)
+        self.program_icons = {}
 
-        # Get user's first name
         self.user_first_name = get_user_first_name()
         logger.info(f"User first name: {self.user_first_name}")
-        
+
         self.desktop_icon_url = "https://raw.githubusercontent.com/Protechas/Elysium/main/ELYSIUM_icon.ico"
-        self.desktop_icon_path = self.download_icon(self.desktop_icon_url)
-        
+        self.desktop_icon_path = None
+
         self.active_threads = []
+        self.icon_download_threads = []
         self.completed_updates = 0
         self.total_updates = 0
-        elysium_dir = os.path.dirname(os.path.abspath(__file__))
-
-        self.programs = {
-            "DFR": {
-                "icon_url": "https://raw.githubusercontent.com/Protechas/DFR/main/DFR.ico", 
-                "script": "DFR.py",
-                "repo_url": "https://github.com/Protechas/DFR.git"
-            },
-            "SI MultiTool": {
-                "icon_url": "https://raw.githubusercontent.com/Protechas/SI-MultiTool/main/SI-Multitool.ico", 
-                "script": "SI Multitool.py",
-                "repo_url": "https://github.com/Protechas/SI-MultiTool.git"
-            },
-            "Hyper": {
-                "icon_url": "https://raw.githubusercontent.com/Protechas/Hyper/master/Hyper.ico",
-                "script": "Hyper.py",
-                "repo_url": "https://github.com/Protechas/Hyper.git"
-            },
-            "Analyzer+": {
-                "icon_url": "https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico", 
-                "script": "Analyzer+.py",
-                "repo_url": "https://github.com/Protechas/AnalyzerPlus"
-            },
-            "SI Op Manager": {
-                "icon_url": "https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico",
-                "script": "main.py",
-                "repo_name": "SI-Opportunity-Manager---Current-State-02-2025",
-                "repo_url": "https://github.com/Zmang24/SI-Opportunity-Manager---Current-State-02-2025"
-            },
-            "Flow": {
-                "icon_url": "https://raw.githubusercontent.com/Protechas/Flow/main/launcher/flow-icon.ico",
-                "script": "launcher/launch-flow.vbs",
-                "repo_url": "https://github.com/Protechas/Flow.git"
-            },
-            "SmartSplit": {
-                "icon_url": "https://raw.githubusercontent.com/Protechas/SmartSplit/refs/heads/main/SmartSplit.ico",
-                "script": "excel_splitter.py",
-                "repo_url": "https://github.com/Protechas/SmartSplit"
-            },
-            "Combiner": {
-                "icon_path": os.path.join(elysium_dir, "combiner_icon.ico"),
-                "script": "main.py",
-                "repo_url": "https://github.com/Protechas/combiner.git"
-            }
-        }
+        self.programs = self.app_registry.legacy_programs_dict()
 
         self.init_ui()
-        self.setStyleSheet(self.dark_style)
+        self.apply_theme(True)
+        logger.info("ELYSIUM UI initialized")
+
+    def current_launcher_style(self):
+        return build_main_stylesheet(self._dark_mode)
+
+    def apply_theme(self, dark=True):
+        self._dark_mode = dark
+        t = THEME_DARK if dark else THEME_LIGHT
+        self.setStyleSheet(build_main_stylesheet(dark))
+        for icon in self.program_icons.values():
+            icon.set_dark_mode(dark)
+        if hasattr(self, "apps_scroll"):
+            self.apps_scroll.setStyleSheet(build_scroll_stylesheet(dark))
+            _set_widget_background(self.apps_scroll.viewport(), t["surface"])
+            self.apps_grid_host.setStyleSheet("background: transparent;")
+        QTimer.singleShot(0, lambda: apply_native_title_bar_theme(self, dark))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        apply_native_title_bar_theme(self, self._dark_mode)
 
     def init_ui(self):
         self.setWindowTitle('ELYSIUM')
-        self.setGeometry(100, 100, 400, 300)
+        self.setMinimumSize(640, 820)
+        self.resize(660, 860)
 
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 16)
+        root.setSpacing(14)
 
-        # Add version label to top right
-        version_label = QLabel('v1.1', self)
-        version_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
-        version_label.setStyleSheet('''
-            QLabel {
-                font-size: 8px;
-                color: #666666;
-                margin: 5px;
-            }
-        ''')
-        layout.addWidget(version_label)
+        header = QFrame()
+        header.setObjectName("headerFrame")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(18, 14, 18, 14)
 
-        # Add a welcome message with the user's name
-        welcome_label = QLabel(f'Welcome, {self.user_first_name}!', self)
-        welcome_label.setAlignment(Qt.AlignCenter)
-        welcome_label.setStyleSheet('''
-            QLabel {
-                font-size: 18px;
-                color: #008080;
-                margin-bottom: 10px;
-            }
-        ''')
-        layout.addWidget(welcome_label)
+        title_block = QVBoxLayout()
+        title_block.setSpacing(2)
+        header_title = QLabel("ELYSIUM")
+        header_title.setObjectName("headerTitle")
+        header_subtitle = QLabel(f"Welcome back, {self.user_first_name}")
+        header_subtitle.setObjectName("headerSubtitle")
+        title_block.addWidget(header_title)
+        title_block.addWidget(header_subtitle)
+        header_layout.addLayout(title_block)
+        header_layout.addStretch()
 
-        header_label = QLabel('ELYSIUM', self)
-        header_label.setAlignment(Qt.AlignCenter)
-        header_label.setStyleSheet('''
-            QLabel {
-                font-size: 36px;
-                font-weight: bold;
-                color: #008080;
-            }
-        ''')
-        layout.addWidget(header_label)
+        version_label = QLabel(f'v{ELYSIUM_VERSION}')
+        version_label.setObjectName("versionBadge")
+        version_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(version_label)
+        root.addWidget(header)
 
-        grid_layout = QGridLayout()
-        grid_layout.setAlignment(Qt.AlignCenter)
-        grid_layout.setSpacing(10)
+        apps_frame = QFrame()
+        apps_frame.setObjectName("appsFrame")
+        apps_layout = QVBoxLayout(apps_frame)
+        apps_layout.setContentsMargins(16, 16, 16, 16)
 
-        # Iterate through each program and create ProgramIcon
+        self.apps_grid_host = QWidget()
+        self.apps_grid_host.setObjectName("appsGridHost")
+
+        grid_layout = QGridLayout(self.apps_grid_host)
+        grid_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        grid_layout.setContentsMargins(4, 4, 4, 8)
+        grid_layout.setHorizontalSpacing(APP_GRID_SPACING_H)
+        grid_layout.setVerticalSpacing(APP_GRID_SPACING_V)
+
         self.program_grid_layout = grid_layout
         self.program_grid_row = 0
         self.program_grid_col = 0
         self.displayed_programs = set()
 
         for program, info in self.programs.items():
-            icon_path = self.resolve_program_icon_path(program, info)
-            
-            if icon_path and os.path.exists(icon_path):
-                icon_widget = ProgramIcon(program, icon_path)
-                icon_widget.clicked.connect(self.program_clicked)
-                grid_layout.addWidget(icon_widget, self.program_grid_row, self.program_grid_col)
-                self.displayed_programs.add(program)
-                self.program_grid_col += 1
-                if self.program_grid_col == 3:
-                    self.program_grid_row += 1
-                    self.program_grid_col = 0
+            self._add_program_to_grid(program, info, allow_download=False)
 
-        layout.addLayout(grid_layout)
+        self._update_apps_grid_minimum_size()
 
-        # Add progress bar and status label at the bottom
+        self.apps_scroll = QScrollArea()
+        self.apps_scroll.setObjectName("appsScroll")
+        self.apps_scroll.setWidget(self.apps_grid_host)
+        self.apps_scroll.setWidgetResizable(True)
+        self.apps_scroll.setFrameShape(QFrame.NoFrame)
+        self.apps_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.apps_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.apps_scroll.viewport().setObjectName("appsScrollViewport")
+        apps_layout.addWidget(self.apps_scroll)
+        root.addWidget(apps_frame, 1)
+
         self.status_label = QLabel('')
+        self.status_label.setObjectName("statusLabel")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet('color: #008080; font-size: 12px;')
-        layout.addWidget(self.status_label)
+        root.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet('''
-            QProgressBar {
-                border: 2px solid #008080;
-                border-radius: 5px;
-                text-align: center;
-                height: 10px;
-            }
-            QProgressBar::chunk {
-                background-color: #008080;
-            }
-        ''')
         self.progress_bar.hide()
-        layout.addWidget(self.progress_bar)
+        root.addWidget(self.progress_bar)
 
-        # Add dark mode toggle button
-        self.dark_mode_toggle_button = QPushButton("Light Mode", self)
+        footer = QFrame()
+        footer.setObjectName("footerFrame")
+        button_layout = QHBoxLayout(footer)
+        button_layout.setContentsMargins(12, 10, 12, 10)
+        button_layout.setSpacing(8)
+
+        self.dark_mode_toggle_button = QPushButton("Light Mode")
+        self.dark_mode_toggle_button.setObjectName("secondaryButton")
         self.dark_mode_toggle_button.clicked.connect(self.toggle_dark_mode)
-        self.dark_mode_toggle_button.setFixedSize(100, 40)
-        self.dark_mode_toggle_button.setStyleSheet('''
-            QPushButton {
-                border-radius: 10px;
-                background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 teal, stop:1 teal);
-                color: white;
-                border: 4px solid transparent;
-                padding: 15px 5px;
-                margin-bottom: 15px;
-                width: 200px;
-            }
-            QPushButton:hover {
-                background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 #008080, stop:1 #add8e6);
-            }
-        ''')
-        
-        # Add a button to view dependency logs
-        self.view_logs_button = QPushButton("View Dependency Logs")
-        self.view_logs_button.setFixedSize(150, 40)
-        self.view_logs_button.clicked.connect(self.view_dependency_logs)
-        self.view_logs_button.setStyleSheet('''
-            QPushButton {
-                border-radius: 10px;
-                background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 #4682B4, stop:1 #4682B4);
-                color: white;
-                border: 4px solid transparent;
-                padding: 15px 5px;
-                margin-bottom: 15px;
-            }
-            QPushButton:hover {
-                background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 #4682B4, stop:1 #87CEEB);
-            }
-        ''')
-        
-        # Hide the logs button by default
-        self.view_logs_button.setVisible(False)
-        
-        # Create a keyboard shortcut (Shift+F9) to show the logs button
-        self.logs_shortcut = QShortcut(QKeySequence("Shift+F9"), self)
-        self.logs_shortcut.activated.connect(self.toggle_logs_button)
-        
-        # Add a button to update Elysium
-        self.update_elysium_button = QPushButton("Update Elysium")
-        self.update_elysium_button.setFixedSize(120, 40)
-        self.update_elysium_button.clicked.connect(self.check_for_elysium_updates)
-        self.update_elysium_button.setStyleSheet('''
-            QPushButton {
-                border-radius: 10px;
-                background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 teal, stop:1 teal);
-                color: white;
-                border: 4px solid transparent;
-                padding: 15px 5px;
-                margin-bottom: 15px;
-                width: 200px;
-            }
-            QPushButton:hover {
-                background: qradialgradient(cx:0.5, cy:0.5, fx:0.5, fy:0.5, radius: 1, stop:0 #008080, stop:1 #add8e6);
-            }
-        ''')
-        
-        # Create a horizontal layout for the buttons
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.dark_mode_toggle_button)
-        button_layout.addSpacing(10)  # Add spacing between buttons
-        button_layout.addWidget(self.view_logs_button)
-        button_layout.addSpacing(10)  # Add spacing between buttons
-        button_layout.addWidget(self.update_elysium_button)
-        button_layout.setAlignment(Qt.AlignCenter)
-        button_layout.setContentsMargins(0, 10, 0, 10)  # Add vertical margins
-        
-        layout.addLayout(button_layout)
 
-        self.setLayout(layout)
+        self.view_logs_button = QPushButton("Logs")
+        self.view_logs_button.setObjectName("secondaryButton")
+        self.view_logs_button.clicked.connect(self.view_dependency_logs)
+
+        self.export_diagnostics_button = QPushButton("Export Diagnostics")
+        self.export_diagnostics_button.setObjectName("secondaryButton")
+        self.export_diagnostics_button.clicked.connect(self.export_diagnostics_bundle)
+
+        self.update_elysium_button = QPushButton("Update Elysium")
+        self.update_elysium_button.setObjectName("primaryButton")
+        self.update_elysium_button.clicked.connect(self.check_for_elysium_updates)
+
+        button_layout.addWidget(self.dark_mode_toggle_button)
+        button_layout.addWidget(self.view_logs_button)
+        button_layout.addWidget(self.export_diagnostics_button)
+        button_layout.addStretch()
+        button_layout.addWidget(self.update_elysium_button)
+        root.addWidget(footer)
+
+    def get_placeholder_icon_path(self):
+        candidates = [
+            os.path.join(self.base_dir, "ELYSIUM_icon.ico"),
+            os.path.join(_REPO_ROOT, "ELYSIUM_icon.ico"),
+            os.path.join(_REPO_ROOT, "combiner_icon.ico"),
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                return path
+        return None
 
     def download_icon(self, url):
-        try:
-            local_filename = os.path.join(self.base_dir, os.path.basename(url))
-            if os.path.exists(local_filename):
-                return local_filename
-            response = requests.get(url)
-            response.raise_for_status()
-            with open(local_filename, 'wb') as f:
-                f.write(response.content)
-            return local_filename
-        except requests.RequestException as e:
-            print(f"Failed to download icon: {e}")
-            return None
+        return download_icon(url, base_dir=self.base_dir)
 
-    def resolve_program_icon_path(self, program, info):
+    def resolve_program_icon_path(self, program, info, allow_download=False):
         if "icon_path" in info:
             icon_path = info["icon_path"]
             if icon_path and os.path.exists(icon_path):
@@ -1320,20 +1259,113 @@ class ProgramUpdater(QWidget):
         if not icon_url:
             return None
 
-        icon_path = self.download_icon(icon_url)
-        if icon_path and os.path.exists(icon_path):
-            return icon_path
+        cached = os.path.join(self.base_dir, os.path.basename(icon_url))
+        if os.path.exists(cached):
+            return cached
 
         folder_name = info.get("repo_name", program)
-        repo_icon = os.path.join(
-            self.base_dir,
-            folder_name,
-            os.path.basename(icon_url),
-        )
+        app_id = info.get("id", "")
+        if app_id:
+            app_dir = resolve_app_dir(app_id, folder_name)
+        else:
+            app_dir = os.path.join(self.base_dir, folder_name)
+        repo_icon = os.path.join(app_dir, os.path.basename(icon_url))
         if os.path.exists(repo_icon):
             return repo_icon
 
+        if allow_download:
+            icon_path = self.download_icon(icon_url)
+            if icon_path and os.path.exists(icon_path):
+                return icon_path
+
         return None
+
+    def _add_program_to_grid(self, program, info, allow_download=False):
+        icon_path = self.resolve_program_icon_path(program, info, allow_download=allow_download)
+        if not icon_path:
+            icon_path = self.get_placeholder_icon_path()
+        status = "Loading" if self._defer_app_status else self.get_program_status(program, info)
+
+        if icon_path and os.path.exists(icon_path):
+            icon_widget = ProgramIcon(
+                program, icon_path, status_text=status, dark=self._dark_mode
+            )
+        else:
+            icon_widget = ProgramIcon(
+                program, "", status_text=status or program, dark=self._dark_mode
+            )
+
+        icon_widget.clicked.connect(self.program_clicked)
+        self.program_icons[program] = icon_widget
+        self.program_grid_layout.addWidget(
+            icon_widget, self.program_grid_row, self.program_grid_col
+        )
+        self.displayed_programs.add(program)
+        self.program_grid_col += 1
+        if self.program_grid_col == APP_GRID_COLUMNS:
+            self.program_grid_row += 1
+            self.program_grid_col = 0
+        self._update_apps_grid_minimum_size()
+
+    def _update_apps_grid_minimum_size(self):
+        if not hasattr(self, "apps_grid_host"):
+            return
+        count = max(len(self.displayed_programs), len(self.programs))
+        width, height = _apps_grid_minimum_size(count)
+        self.apps_grid_host.setMinimumSize(width, height)
+
+    def start_background_icon_downloads(self):
+        for program, info in self.programs.items():
+            icon_url = info.get("icon_url")
+            if not icon_url:
+                continue
+            if self.resolve_program_icon_path(program, info, allow_download=False):
+                continue
+            thread = IconDownloadThread(program, icon_url, self.base_dir)
+            thread.finished_signal.connect(self._on_icon_downloaded)
+            self.icon_download_threads.append(thread)
+            thread.start()
+
+    def _on_icon_downloaded(self, program_name, icon_path):
+        icon_widget = self.program_icons.get(program_name)
+        if icon_widget and icon_path and os.path.exists(icon_path):
+            icon_widget.set_icon_path(icon_path)
+
+    def load_desktop_icon_async(self):
+        cached = os.path.join(self.base_dir, os.path.basename(self.desktop_icon_url))
+        if os.path.exists(cached):
+            self.setWindowIcon(QIcon(cached))
+            return
+
+        def _apply(path):
+            if path and os.path.exists(path):
+                self.setWindowIcon(QIcon(path))
+
+        thread = IconDownloadThread("__desktop__", self.desktop_icon_url, self.base_dir)
+        thread.finished_signal.connect(lambda _name, path: _apply(path))
+        self.icon_download_threads.append(thread)
+        thread.start()
+
+    def refresh_app_statuses(self):
+        for program, info in self.programs.items():
+            self.set_program_status(program, self.get_program_status(program, info))
+
+    def begin_post_show_startup(self):
+        """Non-blocking tasks after the main window is visible."""
+        self.start_background_icon_downloads()
+        self.load_desktop_icon_async()
+        QTimer.singleShot(0, self.refresh_app_statuses)
+        QTimer.singleShot(200, lambda: self.update_all_programs(interactive=False))
+
+    def get_program_status(self, program, info):
+        app = self.app_registry.get_by_name(program)
+        if not app:
+            return ""
+        if info.get("requires_node") and not find_nodejs_bin_dir():
+            return "Needs Node"
+        if not self.app_registry.is_installed(app):
+            return "Not installed"
+        return "Ready"
 
     def refresh_program_icons(self):
         if not hasattr(self, "program_grid_layout"):
@@ -1341,39 +1373,30 @@ class ProgramUpdater(QWidget):
 
         for program, info in self.programs.items():
             if program in self.displayed_programs:
+                icon_path = self.resolve_program_icon_path(program, info, allow_download=False)
+                icon_widget = self.program_icons.get(program)
+                if icon_widget and icon_path and os.path.exists(icon_path):
+                    icon_widget.set_icon_path(icon_path)
                 continue
 
-            icon_path = self.resolve_program_icon_path(program, info)
-            if icon_path and os.path.exists(icon_path):
-                icon_widget = ProgramIcon(program, icon_path)
-                icon_widget.clicked.connect(self.program_clicked)
-                self.program_grid_layout.addWidget(
-                    icon_widget, self.program_grid_row, self.program_grid_col
-                )
-                self.displayed_programs.add(program)
-                self.program_grid_col += 1
-                if self.program_grid_col == 3:
-                    self.program_grid_row += 1
-                    self.program_grid_col = 0
+            self._add_program_to_grid(program, info, allow_download=False)
 
-    def program_clicked(self, program_name):
-        QMessageBox.information(self, "Program Selected", f"You selected {program_name}")
- 
+    def set_program_status(self, program, status):
+        icon = self.program_icons.get(program)
+        if icon:
+            icon.set_status(status)
+
     def program_clicked(self, program):
         self.selected_program = program
         self.update_and_launch_program()
- 
+
     def toggle_dark_mode(self):
         if self.dark_mode_toggle_button.text() == "Light Mode":
-            self.setStyleSheet(self.light_style)
+            self.apply_theme(False)
             self.dark_mode_toggle_button.setText("Dark Mode")
         else:
-            self.setStyleSheet(self.dark_style)
+            self.apply_theme(True)
             self.dark_mode_toggle_button.setText("Light Mode")
- 
-    def program_clicked(self, program):
-        self.selected_program = program
-        self.update_and_launch_program()
  
     def update_program_direct(self, program_name, git_repo_url):
         try:
@@ -1382,16 +1405,19 @@ class ProgramUpdater(QWidget):
                 logger.warning(f"Cannot update {program_name}: Git is not installed")
                 self.update_status(f"Cannot update {program_name}: Git is not installed")
                 return
-            
-            base_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
-            folder_name = self.programs[program_name].get('repo_name', program_name)
-            program_directory = os.path.join(base_directory, folder_name)
+
             program_info = self.programs[program_name]
+            app_id = program_info.get("id", "")
+            folder_name = program_info.get("repo_name", program_name)
+            if app_id:
+                program_directory = resolve_app_dir(app_id, folder_name)
+            else:
+                program_directory = os.path.join(self.base_dir, folder_name)
             icon_basename = None
             if program_info.get("icon_url"):
                 icon_basename = os.path.basename(program_info["icon_url"])
 
-            # Create and start the update thread
+            self.set_program_status(program_name, "Updating")
             update_thread = GitUpdateThread(
                 program_name, git_repo_url, program_directory, icon_basename
             )
@@ -1409,6 +1435,7 @@ class ProgramUpdater(QWidget):
     def thread_finished(self, program_name):
         self.completed_updates += 1
         self.progress_bar.setValue(int((self.completed_updates / self.total_updates) * 100))
+        self.set_program_status(program_name, "Ready")
         
         if self.completed_updates == self.total_updates:
             self.progress_bar.hide()
@@ -1420,39 +1447,39 @@ class ProgramUpdater(QWidget):
     def update_status(self, message):
         self.status_label.setText(message)
 
-    def update_all_programs(self):
-        # Check if Git is installed
+    def update_all_programs(self, interactive=True):
         if not is_git_installed():
-            logger.info("Git not found, prompting user for installation")
-            reply = QMessageBox.question(
-                self, 
-                'Git Required', 
-                "Git is required to update programs but is not installed. Would you like to install it now?",
-                QMessageBox.Yes | QMessageBox.No, 
-                QMessageBox.Yes
-            )
-            
-            if reply == QMessageBox.Yes:
-                self.status_label.setText("Installing Git...")
-                if install_git():
-                    self.status_label.setText("Git installed successfully.")
-                    # Git should now be in PATH for this session
+            logger.info("Git not found during startup update check")
+            if interactive:
+                reply = QMessageBox.question(
+                    self,
+                    'Git Required',
+                    "Git is required to update programs but is not installed. Would you like to install it now?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+
+                if reply == QMessageBox.Yes:
+                    self.status_label.setText("Installing Git...")
+                    if install_git():
+                        self.status_label.setText("Git installed successfully.")
+                    else:
+                        QMessageBox.critical(
+                            self,
+                            'Installation Failed',
+                            "Failed to install Git. Please install it manually from https://git-scm.com/download/win"
+                        )
+                        return
                 else:
-                    QMessageBox.critical(
-                        self, 
-                        'Installation Failed', 
-                        "Failed to install Git. Please install it manually from https://git-scm.com/download/win"
+                    QMessageBox.warning(
+                        self,
+                        'Update Cancelled',
+                        "Cannot update programs without Git."
                     )
                     return
             else:
-                QMessageBox.warning(
-                    self, 
-                    'Update Cancelled', 
-                    "Cannot update programs without Git."
-                )
+                self.status_label.setText("Background updates skipped (Git not installed)")
                 return
-        
-        # Continue with program updates as before (only for git-based programs)
         git_programs = {name: info for name, info in self.programs.items() if info.get("repo_url")}
         
         self.completed_updates = 0
@@ -1473,8 +1500,9 @@ class ProgramUpdater(QWidget):
                 folder_name = program_info.get('repo_name', program_name)
                 git_repo_url = program_info.get('repo_url', '')
                 local_dir = program_info.get('local_dir', '')
+                app_def = self.app_registry.get_by_name(program_name)
+                app_id = program_info.get("id", "")
 
-                # Check if Git is installed before updating (only for git-based programs)
                 if git_repo_url and not is_git_installed():
                     logger.info(f"Git not found when launching {program_name}, prompting user for installation")
                     reply = QMessageBox.question(
@@ -1501,36 +1529,28 @@ class ProgramUpdater(QWidget):
                         # Continue without updating
                         pass
                 
-                # Update the program before launching (if Git is available and it's a git-based program)
                 if git_repo_url and is_git_installed():
                     self.update_program_direct(program_name, git_repo_url)
 
-                # Get the installation directory - use local_dir for local programs, otherwise Documents/Elysium/folder_name
                 if local_dir:
                     installation_directory = local_dir
+                elif app_id:
+                    installation_directory = resolve_app_dir(app_id, folder_name)
                 else:
-                    installation_directory = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium', folder_name)
+                    installation_directory = os.path.join(self.base_dir, folder_name)
 
-                # Check for requirements.txt and install dependencies if needed
                 requirements_file = os.path.join(installation_directory, 'requirements.txt')
-                if os.path.exists(requirements_file):
+                use_isolated = app_id and should_use_isolated_env(app_id)
+                if os.path.exists(requirements_file) and not use_isolated:
                     self.status_label.setText(f"Checking dependencies for {program_name}...")
                     self.check_dependencies_before_launch(requirements_file)
 
-                # Launch the program
-                program_path = os.path.join(installation_directory, script_name)
-                
-                if not os.path.exists(program_path):
-                    raise FileNotFoundError(f"Could not find {script_name} in {installation_directory}")
-
-                # Pass the dark mode style sheet to the launched program
                 launch_env = os.environ.copy()
-                launch_env['LAUNCHER_STYLE'] = self.dark_style
-                launch_env['PYTHONPATH'] = installation_directory
+                launch_env['LAUNCHER_STYLE'] = self.current_launcher_style()
 
                 if program_name == "Flow":
-                    flow_env = os.environ.copy()
-                    if not ensure_nodejs_path(flow_env):
+                    if not ensure_nodejs_path(launch_env):
+                        self.set_program_status(program_name, "Needs Node")
                         QMessageBox.critical(
                             self,
                             'Node.js Required',
@@ -1541,33 +1561,46 @@ class ProgramUpdater(QWidget):
                         return
 
                     patch_flow_launcher(installation_directory)
-                    stop_flow_server()
+                    stop_flow_server(self.app_registry)
+
+                    program_path = os.path.join(installation_directory, script_name)
+                    if not os.path.exists(program_path):
+                        raise FileNotFoundError(f"Could not find {script_name} in {installation_directory}")
 
                     subprocess.Popen(
                         ['wscript.exe', program_path],
                         cwd=installation_directory,
-                        env=flow_env,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                    )
-                elif program_name == "SI Op Manager":
-                    subprocess.Popen(
-                        [sys.executable, program_path],
                         env=launch_env,
                         creationflags=subprocess.CREATE_NO_WINDOW
                     )
+                elif use_isolated:
+                    self.launcher_service.launch(program_name, extra_env=launch_env)
                 else:
+                    program_path = os.path.join(installation_directory, script_name)
+                    if not os.path.exists(program_path):
+                        raise FileNotFoundError(f"Could not find {script_name} in {installation_directory}")
+
+                    launch_env['PYTHONPATH'] = installation_directory
                     subprocess.Popen(
                         [sys.executable, program_path],
                         env=launch_env,
                         creationflags=subprocess.CREATE_NO_WINDOW
                     )
 
+                self.set_program_status(program_name, "Ready")
                 QMessageBox.information(self, 'Launch', f"Launching {program_name} for {self.user_first_name}...")
 
+            except ElysiumError as e:
+                error_msg = str(e)
+                QMessageBox.warning(self, 'Error', error_msg)
+                logger.error(error_msg, exc_info=True)
+                if self.selected_program:
+                    self.set_program_status(self.selected_program, "Failed")
             except Exception as e:
                 error_msg = f"Error updating or launching {program_name}: {str(e)}"
                 QMessageBox.warning(self, 'Error', error_msg)
                 logger.error(error_msg, exc_info=True)
+                self.set_program_status(program_name, "Failed")
         else:
             QMessageBox.warning(self, 'Error', 'Please select a program to launch.')
             
@@ -1736,8 +1769,7 @@ class ProgramUpdater(QWidget):
 
     def view_dependency_logs(self):
         try:
-            # Path to logs directory
-            log_dir = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'logs')
+            log_dir = get_logs_dir()
             
             # Check if logs directory exists
             if not os.path.exists(log_dir):
@@ -1856,19 +1888,21 @@ class ProgramUpdater(QWidget):
             QMessageBox.warning(self, 'Error', f"Error viewing logs: {str(e)}")
             logger.error(f"Error viewing logs: {str(e)}", exc_info=True)
 
-    def toggle_logs_button(self):
-        # Toggle the visibility of the logs button
-        current_visibility = self.view_logs_button.isVisible()
-        self.view_logs_button.setVisible(not current_visibility)
-        
-        # Log the action
-        if not current_visibility:
-            logger.info("Logs button revealed via Shift+F9 shortcut")
-            # Optional: Show a brief message to confirm the action
-            self.status_label.setText("Logs button revealed (Shift+F9)")
-        else:
-            logger.info("Logs button hidden via Shift+F9 shortcut")
-            self.status_label.setText("")
+    def export_diagnostics_bundle(self):
+        try:
+            self.status_label.setText("Exporting diagnostics...")
+            zip_path = export_diagnostics()
+            self.status_label.setText("Diagnostics exported.")
+            QMessageBox.information(
+                self,
+                "Export Diagnostics",
+                f"Diagnostics bundle saved to:\n{zip_path}",
+            )
+        except Exception as e:
+            error_msg = f"Failed to export diagnostics: {e}"
+            self.status_label.setText(error_msg)
+            QMessageBox.warning(self, "Export Failed", error_msg)
+            logger.error(error_msg, exc_info=True)
 
     def check_for_elysium_updates(self):
         """Check for updates to Elysium itself."""
@@ -1877,7 +1911,7 @@ class ProgramUpdater(QWidget):
             
             # Define the Elysium repository URL
             elysium_repo_url = "https://github.com/Protechas/Elysium.git"
-            elysium_dir = os.path.join(os.environ['USERPROFILE'], 'Documents', 'Elysium')
+            elysium_dir = get_base_dir()
             
             # Check if Git is installed
             if not is_git_installed():
@@ -1974,28 +2008,61 @@ def get_user_first_name():
     logger.warning("Could not determine user name, using default")
     return "User"
 
-def main():
-    close_stale_application_state()
-    ensure_elysium_dependencies()
-
-    app = QApplication(sys.argv)
-    updater = ProgramUpdater()
-
-    screen_geometry = app.primaryScreen().geometry()
-    window_geometry = updater.geometry()
-
-    center_x = int((screen_geometry.width() - window_geometry.width()) / 2)
-    center_y = int((screen_geometry.height() - window_geometry.height()) / 2)
-
-    updater.move(center_x, center_y)
-
-    icon_path = os.path.join(os.path.expanduser('~'), 'Documents', 'Elysium', 'ELYSIUM_icon.ico')
-
+def _apply_window_icon(window):
+    icon_path = os.path.join(get_base_dir(), 'ELYSIUM_icon.ico')
+    if not os.path.exists(icon_path):
+        icon_path = os.path.join(_REPO_ROOT, 'ELYSIUM_icon.ico')
     if os.path.exists(icon_path):
-        updater.setWindowIcon(QIcon(icon_path))
+        window.setWindowIcon(QIcon(icon_path))
 
-    updater.show()
-    QTimer.singleShot(0, updater.update_all_programs)
+
+def _center_window(window, app):
+    screen_geometry = app.primaryScreen().geometry()
+    window_geometry = window.geometry()
+    center_x = screen_geometry.x() + (screen_geometry.width() - window_geometry.width()) // 2
+    center_y = screen_geometry.y() + (screen_geometry.height() - window_geometry.height()) // 2
+    window.move(center_x, center_y)
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setApplicationName("ELYSIUM")
+
+    splash = StartupSplash()
+    _apply_window_icon(splash)
+    splash.center_on_screen(app)
+    splash.show()
+    splash.set_progress("Starting ELYSIUM...", 5)
+    app.processEvents()
+
+    init_thread = StartupInitThread()
+    main_window = {'updater': None}
+
+    def open_main_window():
+        splash.set_progress("Loading interface...", 92)
+        app.processEvents()
+
+        updater = ProgramUpdater(defer_app_status=True)
+        main_window['updater'] = updater
+        _apply_window_icon(updater)
+        _center_window(updater, app)
+
+        splash.set_progress("Ready", 100)
+        app.processEvents()
+
+        def reveal_main_window():
+            splash.close()
+            updater.show()
+            apply_native_title_bar_theme(updater, updater._dark_mode)
+            updater.raise_()
+            updater.activateWindow()
+            updater.begin_post_show_startup()
+
+        QTimer.singleShot(250, reveal_main_window)
+
+    init_thread.status_signal.connect(splash.set_progress)
+    init_thread.finished_signal.connect(open_main_window)
+    init_thread.start()
 
     sys.exit(app.exec_())
 

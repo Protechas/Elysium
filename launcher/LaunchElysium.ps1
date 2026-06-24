@@ -2,10 +2,52 @@
 $ErrorActionPreference = "Stop"
 
 $ElysiumRepo = "https://github.com/Protechas/Elysium.git"
-$ElysiumDir = Join-Path $env:USERPROFILE "Documents\Elysium"
+$RequiredPackages = @("PyQt5", "PySide6", "requests", "openpyxl", "setuptools", "platformdirs", "pydantic", "pyyaml")
+
+function Test-ElysiumDataPresent {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) {
+        return $false
+    }
+    $markers = @("ELYSIUM.py", "settings.json", ".git", "DFR", "Flow", "logs", "apps")
+    foreach ($marker in $markers) {
+        if (Test-Path (Join-Path $Path $marker)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Get-LegacyElysiumBaseDir {
+    $docs = [Environment]::GetFolderPath("MyDocuments")
+    if (-not $docs) {
+        $docs = Join-Path $env:USERPROFILE "Documents"
+    }
+    return Join-Path $docs "Elysium"
+}
+
+function Resolve-ElysiumBaseDir {
+    $newBase = Join-Path $env:LOCALAPPDATA "Protech\Elysium"
+    $legacyBase = Get-LegacyElysiumBaseDir
+
+    if ((Test-ElysiumDataPresent $newBase) -and -not (Test-ElysiumDataPresent $legacyBase)) {
+        return $newBase
+    }
+    if (Test-ElysiumDataPresent $legacyBase) {
+        return $legacyBase
+    }
+    if (Test-ElysiumDataPresent $newBase) {
+        return $newBase
+    }
+    if (Test-Path (Join-Path $legacyBase "ELYSIUM.py")) {
+        return $legacyBase
+    }
+    return $newBase
+}
+
+$ElysiumDir = Resolve-ElysiumBaseDir
 $LogDir = Join-Path $ElysiumDir "logs"
 $LauncherLog = Join-Path $LogDir "launcher_error.log"
-$RequiredPackages = @("PyQt5", "requests", "openpyxl", "setuptools")
 
 function Write-LauncherLog {
     param([string]$Message)
@@ -96,11 +138,11 @@ function Find-Python {
         if ($candidate -match " ") {
             $parts = $candidate.Split(" ", 2)
             $exe = $parts[0]
-            $args = $parts[1]
+            $launcherArgs = $parts[1]
             try {
-                $null = & $exe $args -c "import sys; print(sys.executable)" 2>&1
+                $null = & $exe $launcherArgs -c "import sys; print(sys.executable)" 2>&1
                 if ($LASTEXITCODE -eq 0) {
-                    return @{ Command = $exe; Args = @($args) }
+                    return @{ Command = $exe; Args = @($launcherArgs) }
                 }
             } catch {}
         } else {
@@ -179,7 +221,7 @@ function Install-Git {
             "/SP-",
             "/CLOSEAPPLICATIONS",
             "/RESTARTAPPLICATIONS",
-            '/COMPONENTS="icons,ext\reg\shellhere,assoc,assoc_sh"'
+            "/COMPONENTS=icons,ext/reg/shellhere,assoc,assoc_sh"
         )
         $process = Start-Process -FilePath $installer -ArgumentList $installArgs -Wait -PassThru
         if ($process.ExitCode -ne 0) {
@@ -213,8 +255,88 @@ function Ensure-Git {
     return $null
 }
 
+function Get-DefaultGitBranch {
+    param([string]$GitExe)
+
+    foreach ($branch in @("main", "master")) {
+        $remote = & $GitExe ls-remote --heads $ElysiumRepo $branch 2>$null
+        if ($LASTEXITCODE -eq 0 -and $remote) {
+            return $branch
+        }
+    }
+    return "main"
+}
+
+function Invoke-GitOutput {
+    param(
+        [string]$GitExe,
+        [string[]]$GitArgs,
+        [string]$WorkingDirectory = ""
+    )
+
+    if ($WorkingDirectory) {
+        Push-Location $WorkingDirectory
+    }
+    try {
+        $output = & $GitExe @GitArgs 2>&1
+        foreach ($line in $output) {
+            Write-Host $line
+        }
+        return $LASTEXITCODE
+    } finally {
+        if ($WorkingDirectory) {
+            Pop-Location
+        }
+    }
+}
+
+function Initialize-GitInExistingDir {
+    param([string]$GitExe)
+
+    Write-Host "Existing Elysium data found; attaching git and syncing from GitHub..."
+    $settingsPath = Join-Path $ElysiumDir "settings.json"
+    $settingsBackup = $null
+    if (Test-Path $settingsPath) {
+        $settingsBackup = Get-Content -Path $settingsPath -Raw -ErrorAction SilentlyContinue
+    }
+
+    & $GitExe -C $ElysiumDir init 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+        throw "git init failed with exit code $LASTEXITCODE"
+    }
+
+    & $GitExe -C $ElysiumDir remote add origin $ElysiumRepo 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+        throw "git remote add failed with exit code $LASTEXITCODE"
+    }
+
+    $branch = Get-DefaultGitBranch -GitExe $GitExe
+    $fetchCode = Invoke-GitOutput -GitExe $GitExe -GitArgs @("-C", $ElysiumDir, "fetch", "--depth", "1", "origin", $branch)
+    if ($fetchCode -ne 0) {
+        throw "git fetch failed with exit code $fetchCode"
+    }
+
+    $resetCode = Invoke-GitOutput -GitExe $GitExe -GitArgs @("-C", $ElysiumDir, "reset", "--hard", ("origin/{0}" -f $branch))
+    if ($resetCode -ne 0) {
+        throw "git reset failed with exit code $resetCode"
+    }
+
+    if ($settingsBackup) {
+        try {
+            Set-Content -Path $settingsPath -Value $settingsBackup -Encoding UTF8
+        } catch {
+            Write-Host "Warning: Could not restore settings.json after git sync."
+        }
+    }
+}
+
 function Sync-ElysiumRepo {
     param([hashtable]$Python)
+
+    if ($env:ELYSIUM_SKIP_GIT -eq "1") {
+        Write-Host 'Skipping git sync (ELYSIUM_SKIP_GIT=1).'
+        return
+    }
 
     if (-not (Test-Path $ElysiumDir)) {
         New-Item -ItemType Directory -Path $ElysiumDir -Force | Out-Null
@@ -224,7 +346,7 @@ function Sync-ElysiumRepo {
     $gitExe = Ensure-Git
     if (-not $gitExe) {
         if (Test-Path $elysiumScript) {
-            Write-Host "Warning: Git not found. Using existing ELYSIUM installation without updating."
+            Write-Host 'Warning: Git not found. Using existing ELYSIUM installation without updating.'
             return
         }
         Show-LauncherError "ELYSIUM - Git Required" @"
@@ -239,33 +361,28 @@ Then run LaunchElysium.bat again.
 
     $gitDir = Join-Path $ElysiumDir ".git"
     if (Test-Path $gitDir) {
-        Write-Host "Updating ELYSIUM from GitHub..."
-        Push-Location $ElysiumDir
-        try {
-            & $gitExe pull --ff-only 2>&1 | ForEach-Object { Write-Host $_ }
-            if ($LASTEXITCODE -ne 0) {
-                if (Test-Path $elysiumScript) {
-                    Write-Host "Warning: git pull failed; continuing with existing ELYSIUM.py."
-                    return
-                }
-                throw "git pull failed with exit code $LASTEXITCODE"
+        Write-Host 'Updating ELYSIUM from GitHub...'
+        $pullCode = Invoke-GitOutput -GitExe $gitExe -GitArgs @("pull", "--ff-only") -WorkingDirectory $ElysiumDir
+        if ($pullCode -ne 0) {
+            if (Test-Path $elysiumScript) {
+                Write-Host 'Warning: git pull failed; continuing with existing ELYSIUM.py.'
+                return
             }
-        } finally {
-            Pop-Location
+            throw "git pull failed with exit code $pullCode"
         }
-    } else {
-        Write-Host "Cloning ELYSIUM from GitHub..."
-        $parent = Split-Path $ElysiumDir -Parent
-        $folder = Split-Path $ElysiumDir -Leaf
-        Push-Location $parent
-        try {
-            & $gitExe clone $ElysiumRepo $folder 2>&1 | ForEach-Object { Write-Host $_ }
-            if ($LASTEXITCODE -ne 0) {
-                throw "git clone failed with exit code $LASTEXITCODE"
-            }
-        } finally {
-            Pop-Location
+        return
+    }
+
+    Write-Host 'Cloning ELYSIUM from GitHub...'
+    $parent = Split-Path $ElysiumDir -Parent
+    $folder = Split-Path $ElysiumDir -Leaf
+    $cloneCode = Invoke-GitOutput -GitExe $gitExe -GitArgs @("clone", "--depth", "1", $ElysiumRepo, $folder) -WorkingDirectory $parent
+    if ($cloneCode -ne 0) {
+        if (Test-ElysiumDataPresent $ElysiumDir) {
+            Initialize-GitInExistingDir -GitExe $gitExe
+            return
         }
+        throw "git clone failed with exit code $cloneCode"
     }
 }
 
@@ -273,7 +390,7 @@ function Install-ElysiumDependencies {
     param([hashtable]$Python)
 
     Write-Host "Checking Python dependencies..."
-    $checkScript = "import importlib; pkgs=['PyQt5.QtCore','requests','openpyxl','pkg_resources']; [importlib.import_module(p if '.' in p else p) for p in pkgs]"
+    $checkScript = 'import importlib; pkgs=["PyQt5.QtCore","PySide6.QtCore","requests","openpyxl","pkg_resources","platformdirs","pydantic","yaml"]; [importlib.import_module(p if "." in p else p) for p in pkgs]'
     $checkCode = Invoke-Python $Python @("-c", $checkScript)
     if ($checkCode -eq 0) {
         Write-Host "All dependencies are installed."
@@ -312,7 +429,7 @@ function Stop-OtherElysiumInstances {
             $_.CommandLine -like '*ELYSIUM.py*' -or
             $_.CommandLine -like '*elysium_launcher.py*' -or
             $_.CommandLine -like '*ElysiumLauncher.exe*'
-        )) -or $_.Name -eq 'ElysiumLauncher.exe'
+        )) -or $_.Name -in @('ElysiumLauncher.exe', 'ELYSIUM.exe')
     }
 
     foreach ($proc in $processes) {

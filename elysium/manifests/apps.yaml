@@ -1,0 +1,117 @@
+apps:
+  - id: dfr
+    name: DFR
+    description: Diagnostic file review and repair tool
+    icon_url: https://raw.githubusercontent.com/Protechas/DFR/main/DFR.ico
+    repo_url: https://github.com/Protechas/DFR.git
+    repo_name: DFR
+    launch:
+      type: python
+      entry: DFR.py
+    environment:
+      type: python
+      requirements: requirements.txt
+    tags:
+      - diagnostics
+      - repair
+
+  - id: si_multitool
+    name: SI MultiTool
+    description: Support and inspection utility
+    icon_url: https://raw.githubusercontent.com/Protechas/SI-MultiTool/main/SI-Multitool.ico
+    repo_url: https://github.com/Protechas/SI-MultiTool.git
+    repo_name: SI MultiTool
+    launch:
+      type: python
+      entry: SI Multitool.py
+    environment:
+      type: python
+      requirements: requirements.txt
+    tags:
+      - support
+      - utility
+
+  - id: hyper
+    name: Hyper
+    description: Hyper utility tool
+    icon_url: https://raw.githubusercontent.com/Protechas/Hyper/master/Hyper.ico
+    repo_url: https://github.com/Protechas/Hyper.git
+    launch:
+      type: python
+      entry: Hyper.py
+    environment:
+      type: python
+      requirements: requirements.txt
+    tags:
+      - utility
+
+  - id: analyzer_plus
+    name: Analyzer+
+    description: Analyzer Plus diagnostic tool
+    icon_url: https://raw.githubusercontent.com/Protechas/AnalyzerPlus/main/Analyzer.ico
+    repo_url: https://github.com/Protechas/AnalyzerPlus
+    launch:
+      type: python
+      entry: Analyzer+.py
+    environment:
+      type: python
+      requirements: requirements.txt
+    tags:
+      - diagnostics
+
+  - id: si_op_manager
+    name: SI Op Manager
+    description: SI Opportunity Manager
+    icon_url: https://raw.githubusercontent.com/Protechas/SI-Opportunity-Manager/refs/heads/main/SI%20Opportunity%20Manager%20LOGO.ico
+    repo_url: https://github.com/Zmang24/SI-Opportunity-Manager---Current-State-02-2025
+    repo_name: SI-Opportunity-Manager---Current-State-02-2025
+    launch:
+      type: python
+      entry: main.py
+    environment:
+      type: python
+      requirements: requirements.txt
+    tags:
+      - management
+
+  - id: flow
+    name: Flow
+    description: Workflow operations utility
+    icon_url: https://raw.githubusercontent.com/Protechas/Flow/main/launcher/flow-icon.ico
+    repo_url: https://github.com/Protechas/Flow.git
+    repo_name: Flow
+    launch:
+      type: script
+      entry: launcher/launch-flow.vbs
+    requirements:
+      node: true
+    tags:
+      - workflow
+
+  - id: smartsplit
+    name: SmartSplit
+    description: Excel splitting utility
+    icon_url: https://raw.githubusercontent.com/Protechas/SmartSplit/refs/heads/main/SmartSplit.ico
+    repo_url: https://github.com/Protechas/SmartSplit
+    launch:
+      type: python
+      entry: excel_splitter.py
+    environment:
+      type: python
+      requirements: requirements.txt
+    tags:
+      - excel
+
+  - id: combiner
+    name: Combiner
+    description: File combiner utility
+    icon_path: combiner_icon.ico
+    repo_url: https://github.com/Protechas/combiner.git
+    launch:
+      type: python
+      entry: main.py
+    environment:
+      type: python
+      requirements: requirements.txt
+    tags:
+      - utility
